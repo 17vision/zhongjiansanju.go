@@ -17,3 +17,7 @@ temp/
 temp.yaml
 bin
 **/config/config.yaml
+
+storage/
+
+main.exe~

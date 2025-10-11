@@ -8,6 +8,7 @@ import (
 	"github.com/gogf/gf/v2/os/gcmd"
 
 	"zjsj/internal/controller/hello"
+	"zjsj/internal/websocket"
 )
 
 var (
@@ -23,6 +24,9 @@ var (
 					hello.NewV1(),
 				)
 			})
+
+			websocket.BindRouters(s)
+
 			s.Run()
 			return nil
 		},
