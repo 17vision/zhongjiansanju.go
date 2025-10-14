@@ -14,6 +14,7 @@ const (
 	MsgTypeFriendAdded  = "friend_added"      // 好友添加成功通知
 	MsgTypeAddFriendRes = "add_friend_result" // 加好友结果
 	MsgTypeError        = "error"             // 错误消息
+	MsgTypeKicked       = "kicked"            // 被踢下线通知
 )
 
 // 错误码常量
