@@ -60,7 +60,7 @@ const (
 // 读泵：只负责读 + 出错时清理
 func (c *Client) readPump(ctx context.Context, m *Manager) {
 	defer func() {
-		m.RemoveClient(ctx, c.User.Id)
+		m.removeClient(ctx, c.User.Id)
 	}()
 
 	c.conn.SetReadLimit(maxMessageSize)
@@ -97,6 +97,10 @@ func (c *Client) readPump(ctx context.Context, m *Manager) {
 		switch env.Type {
 		case "chat":
 			payload = new(ChatReq)
+		case "createOrJoinMap":
+			payload = new(CreateOrJoinMapReq)
+		case "JoinRoomHandler":
+			payload = new(JoinRoomReq)
 		default:
 			continue
 		}

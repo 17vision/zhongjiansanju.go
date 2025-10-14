@@ -12,7 +12,7 @@ import (
 var manager *Manager
 
 func init() {
-	manager = NewManager(100, 15)
+	manager = NewManager(50, 30)
 }
 
 func BindRouters(s *ghttp.Server) {
@@ -59,13 +59,15 @@ func websocketHandler(r *ghttp.Request) {
 	// 断开处理
 	conn.SetCloseHandler(func(code int, text string) error {
 		g.Log().Info(ctx, "WebSocket closed:", code, text)
-		manager.RemoveClient(ctx, user.Id)
+		manager.removeClient(ctx, user.Id)
 		return nil
 	})
 
-	var room *Room
+	// 初始化客户端信息
+	client := manager.createClient(ctx, &user, conn)
 
-	room, client := manager.CreateOrJoinLobby(&user, conn)
+	// 默认进入大厅
+	room := manager.createOrJoinLobby(client)
 
 	if client == nil {
 		g.Log().Error(ctx, "CreateOrJoinLobby returned nil client")
@@ -78,10 +80,10 @@ func websocketHandler(r *ghttp.Request) {
 	go client.readPump(ctx, manager)
 
 	// 把房间里的人推送给自己
-	manager.PushRoomUserList(ctx, room, user.Id)
+	manager.pushRoomUserList(ctx, room, user.Id)
 
 	// 广播消息，有人进来了
-	manager.BroadcastUserJoined(ctx, room, &user)
+	manager.broadcastUserJoined(ctx, room, &user)
 }
 
 func testHandler(r *ghttp.Request) {

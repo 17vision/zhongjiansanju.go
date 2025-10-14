@@ -11,3 +11,15 @@ gfcli:
     build: "-a amd64 -s linux -p temp -ew"
     tagPrefixes:
       - my.image.pub/my-app
+
+  build:
+    name: "main"
+    arch: "amd64"
+    system: "linux"
+    mod: "none"
+    packSrc: "resource,manifest"
+    version: "v1.0.0"
+    output: "./out/main"
+    cgo: 0
+    extra: ""
+    dumpEnv: false

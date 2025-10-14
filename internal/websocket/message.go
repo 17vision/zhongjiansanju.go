@@ -2,9 +2,9 @@ package websocket
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/gogf/gf/v2/encoding/gjson"
+	"github.com/gogf/gf/v2/frame/g"
 )
 
 // WSMessage WebSocket消息通用结构体
@@ -48,13 +48,13 @@ type Envelope struct {
 type ReadMessageHandlerFunc func(ctx context.Context, m *Manager, client *Client, message interface{}) error
 
 var ReadMessageHandlers = map[string]ReadMessageHandlerFunc{
-	"chat": ChatHandler,
+	"chat":            ChatHandler,
+	"createOrJoinMap": CreateOrJoinMapHandler,
+	"joinRoom":        JoinRoomHandler,
 }
 
 func ChatHandler(ctx context.Context, manager *Manager, client *Client, message interface{}) error {
 	req := message.(*ChatReq)
-
-	fmt.Println("谁发的消息", req.FromUid, req.ToUid, req.Message.Content, req.Message.Type)
 
 	// manager.rooms[client.RoomType] is a slice of *Room (indexed by int), so range over that slice
 	for _, room := range manager.rooms[client.RoomType] {
@@ -72,6 +72,37 @@ func ChatHandler(ctx context.Context, manager *Manager, client *Client, message 
 	return nil
 }
 
+func CreateOrJoinMapHandler(ctx context.Context, manager *Manager, client *Client, message interface{}) error {
+	req := message.(*CreateOrJoinMapReq)
+
+	// 先退出以前的房子
+	manager.leftLobbyOrMap(ctx, client)
+
+	// 再创建或进房子
+	room := manager.createOrJoinMap(client, req.Map)
+
+	g.Log("test").Async().Infof(ctx, "用户 %s 创建或进入地图 %s", client.User.Nickname, room.Id)
+
+	// 把房间里的人推送给自己
+	manager.pushRoomUserList(ctx, room, client.User.Id)
+
+	// 广播消息，有人进来了
+	manager.broadcastUserJoined(ctx, room, client.User)
+
+	return nil
+}
+
+func JoinRoomHandler(ctx context.Context, manager *Manager, client *Client, message interface{}) error {
+	req := message.(*JoinRoomReq)
+
+	err := manager.JoinRoom(ctx, client.User.Id, req.RoomId)
+
+	if err != nil {
+		manager.error(ctx, client, err)
+	}
+	return nil
+}
+
 type ChatMessage struct {
 	Type    string `json:"type"`
 	Content string `json:"content"`
@@ -80,4 +111,12 @@ type ChatReq struct {
 	FromUid uint64      `json:"fromUid"`
 	ToUid   uint64      `json:"toUid"`
 	Message ChatMessage `json:"message"`
+}
+
+type CreateOrJoinMapReq struct {
+	Map string `json:"map"`
+}
+
+type JoinRoomReq struct {
+	RoomId string `json:"roomId"`
 }

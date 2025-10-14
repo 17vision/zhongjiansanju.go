@@ -15,6 +15,7 @@ const (
 	MsgTypeAddFriendRes = "add_friend_result" // 加好友结果
 	MsgTypeError        = "error"             // 错误消息
 	MsgTypeKicked       = "kicked"            // 被踢下线通知
+	MsgTypeKickedRoom   = "kicked_romm"       // 踢出房间通知
 )
 
 // 错误码常量

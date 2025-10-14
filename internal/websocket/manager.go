@@ -6,6 +6,7 @@ import (
 	"sync"
 
 	"github.com/gogf/gf/v2/encoding/gjson"
+	"github.com/gogf/gf/v2/errors/gerror"
 	"github.com/gogf/gf/v2/frame/g"
 	"github.com/gorilla/websocket"
 )
@@ -27,10 +28,27 @@ func NewManager(lobbyCap, mapCap int) *Manager {
 	}
 }
 
-func (m *Manager) KickClient(ctx context.Context, user *User, reason string) {
-	m.mu.Lock()
-	client, ok := m.clients[user.Id]
-	m.mu.Unlock()
+// 创建一个 Client
+func (manager *Manager) createClient(ctx context.Context, user *User, conn *websocket.Conn) *Client {
+	// 异地登录
+	manager.kickClient(ctx, user, "异地登录")
+
+	manager.mu.Lock()
+
+	client := &Client{User: user, conn: conn, send: make(chan []byte, 256), done: make(chan struct{})}
+
+	manager.clients[user.Id] = client
+
+	manager.mu.Unlock()
+
+	return client
+}
+
+// 踢掉连接
+func (manager *Manager) kickClient(ctx context.Context, user *User, reason string) {
+	manager.mu.Lock()
+	client, ok := manager.clients[user.Id]
+	manager.mu.Unlock()
 
 	if !ok || client == nil {
 		return
@@ -39,99 +57,172 @@ func (m *Manager) KickClient(ctx context.Context, user *User, reason string) {
 	g.Log("test").Async().Infof(ctx, "%s 被踢下线通知", client.User.Nickname)
 
 	// 先发通知，再踢出去
-	m.unicastAsync(ctx, client, WSMessage{
+	manager.unicastAsync(ctx, client, WSMessage{
 		Type: MsgTypeKicked,
 		Data: map[string]any{"reason": reason},
 	})
 
-	m.RemoveClient(ctx, user.Id)
+	manager.removeClient(ctx, user.Id)
 }
 
-// CreateOrJoinLobby finds a lobby with space or creates one
-func (m *Manager) CreateOrJoinLobby(user *User, conn *websocket.Conn) (*Room, *Client) {
-	// 异地登录
-	m.KickClient(context.Background(), user, "异地登录")
+// 踢出房间
+func (manager *Manager) KickRoom(ctx context.Context, room *Room, user *User, reason string) {
+	manager.mu.Lock()
+	client, ok := room.Clients[user.Id]
+	manager.mu.Unlock()
 
-	m.mu.Lock()
-	defer m.mu.Unlock()
+	if !ok || client == nil {
+		return
+	}
 
-	for _, room := range m.rooms[RoomTypeLobby] {
-		if len(room.Clients) < m.lobbyCapacity {
-			client := &Client{User: user, RoomType: RoomTypeLobby, RoomId: room.Id, conn: conn, send: make(chan []byte, 256), done: make(chan struct{})}
-			room.Clients[user.Id] = client
-			m.clients[user.Id] = client
-			return room, client
+	g.Log("test").Async().Infof(ctx, "%s 被踢出房间通知", client.User.Nickname)
+
+	// 先发通知
+	manager.unicastAsync(ctx, client, WSMessage{
+		Type: MsgTypeKickedRoom,
+		Data: map[string]any{"reason": reason},
+	})
+
+	delete(room.Clients, user.Id)
+
+	// 广播用户离开房间
+	manager.broadcastUserLeft(ctx, room, user)
+
+	// 进入或创建房间
+	room = manager.createOrJoinLobby(client)
+
+	// 把房间里的人推送给自己
+	manager.pushRoomUserList(ctx, room, user.Id)
+
+	// 广播消息，有人进来了
+	manager.broadcastUserJoined(ctx, room, user)
+}
+
+// 创建或加入一个大厅
+func (manager *Manager) createOrJoinLobby(client *Client) *Room {
+	manager.mu.Lock()
+	defer manager.mu.Unlock()
+
+	client.RoomType = RoomTypeLobby
+
+	for _, room := range manager.rooms[RoomTypeLobby] {
+		if len(room.Clients) < manager.lobbyCapacity {
+			client.RoomId = room.Id
+			room.Clients[client.User.Id] = client
+			return room
 		}
 	}
 
-	rid := fmt.Sprintf("lobby-%d", len(m.rooms[RoomTypeLobby])+1)
-	room := &Room{Id: rid, Name: "大厅", Type: RoomTypeLobby, Clients: make(map[uint64]*Client)}
-	client := &Client{User: user, RoomType: RoomTypeLobby, RoomId: room.Id, conn: conn, send: make(chan []byte, 256), done: make(chan struct{})}
-	m.rooms[RoomTypeLobby] = append(m.rooms[RoomTypeLobby], room)
-	m.clients[user.Id] = client
-	room.Clients[user.Id] = client
-	return room, client
+	roomId := fmt.Sprintf("lobby-%d", len(manager.rooms[RoomTypeLobby])+1)
+	room := &Room{Id: roomId, Name: "大厅", Type: RoomTypeLobby, Clients: make(map[uint64]*Client)}
+	client.RoomId = room.Id
+	room.Clients[client.User.Id] = client
+	manager.rooms[RoomTypeLobby] = append(manager.rooms[RoomTypeLobby], room)
+	return room
 }
 
-// CreateOrJoinMap finds a map room with space or creates one
-// func (m *Manager) CreateOrJoinMap(user *User, mapBase string) (*Room, error) {
-// 	m.mu.Lock()
-// 	defer m.mu.Unlock()
+// 创建或进入地图【大厅只有一个，地图却有很多，需要通过 mapBase 来区分】
+func (manager *Manager) createOrJoinMap(client *Client, mapBase string) *Room {
+	manager.mu.Lock()
+	defer manager.mu.Unlock()
 
-// 	// try to find existing map rooms with space
-// 	for _, r := range m.rooms[RoomTypeMap] {
-// 		if r.Id == mapBase || len(r.Clients) < m.mapCapacity {
-// 			client := &Client{User: user, RoomId: r.Id}
-// 			r.Clients[user.Id] = client
-// 			m.clients[user.Id] = client
-// 			return r, nil
-// 		}
-// 	}
-// 	// create new map instance
-// 	rid := fmt.Sprintf("%s-%d", mapBase, len(m.rooms[RoomTypeMap])+1)
-// 	r := &Room{Id: rid, Type: RoomTypeMap, Clients: make(map[uint64]*Client)}
-// 	client := &Client{User: user, RoomId: r.Id}
-// 	r.Clients[user.Id] = client
-// 	m.rooms[RoomTypeMap] = append(m.rooms[RoomTypeMap], r)
-// 	m.clients[user.Id] = client
-// 	return r, nil
-// }
+	client.RoomType = RoomTypeMap
 
-// JoinRoom moves a user to specified room (used for teleport to friend's map)
-// func (m *Manager) JoinRoom(userId uint64, roomID string) error {
-// 	m.mu.Lock()
-// 	defer m.mu.Unlock()
+	for _, room := range manager.rooms[RoomTypeMap] {
+		if room.Id == mapBase || len(room.Clients) < manager.mapCapacity {
+			client.RoomId = room.Id
+			room.Clients[client.User.Id] = client
+			return room
+		}
+	}
 
-// 	client, ok := m.clients[userId]
-// 	if !ok {
-// 		return fmt.Errorf("user not found")
-// 	}
-// 	// leave old room
-// 	for rt, list := range m.rooms {
-// 		for _, r := range list {
-// 			if _, exists := r.Clients[userId]; exists {
-// 				delete(r.Clients, userId)
-// 				break
-// 			}
-// 		}
-// 		_ = rt // suppress unused
-// 	}
-// 	// find target
-// 	for _, list := range m.rooms {
-// 		for _, r := range list {
-// 			if r.Id == roomID {
-// 				r.Clients[userId] = client
-// 				client.RoomId = r.Id
-// 				return nil
-// 			}
-// 		}
-// 	}
-// 	return fmt.Errorf("room not found")
-// }
+	// create new map instance
+	rid := fmt.Sprintf("%s-%d", mapBase, len(manager.rooms[RoomTypeMap])+1)
+	room := &Room{Id: rid, Type: RoomTypeMap, Name: "地图", Clients: make(map[uint64]*Client)}
 
-// PushRoomUserListTo 只推送房间用户列表给指定用户
-func (m *Manager) PushRoomUserList(ctx context.Context, room *Room, userId uint64) {
+	client.RoomId = room.Id
+	room.Clients[client.User.Id] = client
+	manager.rooms[RoomTypeMap] = append(manager.rooms[RoomTypeMap], room)
+	return room
+}
+
+// 离开大厅或房间
+func (manager *Manager) leftLobbyOrMap(ctx context.Context, client *Client) {
+	manager.mu.Lock()
+
+	var room *Room
+	for _, r := range manager.rooms[client.RoomType] {
+		if r.Id == client.RoomId {
+			delete(r.Clients, client.User.Id)
+			room = r
+			break
+		}
+	}
+
+	manager.mu.Unlock()
+
+	if room != nil {
+		manager.broadcastUserLeft(ctx, room, client.User)
+	} else {
+		g.Log("test").Async().Infof(ctx, "用户 %s 离开房间失败，找不到房间 %s", client.User.Nickname, client.RoomId)
+	}
+}
+
+// 进入某个房间
+func (manager *Manager) JoinRoom(ctx context.Context, userId uint64, roomID string) error {
+	manager.mu.Lock()
+
+	client, ok := manager.clients[userId]
+	if !ok {
+		manager.mu.Unlock()
+		return fmt.Errorf("user not found")
+	}
+	manager.mu.Unlock()
+
+	var newRoom *Room
+	for _, list := range manager.rooms {
+		for _, r := range list {
+			if r.Id == roomID {
+				newRoom = r
+				break
+			}
+		}
+	}
+
+	if newRoom == nil {
+		return gerror.New("房间不存在[]")
+	}
+
+	var max int
+	if newRoom.Type == RoomTypeLobby {
+		max = manager.lobbyCapacity
+	} else {
+		max = manager.mapCapacity
+	}
+
+	if len(newRoom.Clients) >= max {
+		return gerror.New("房间已满员")
+	}
+
+	// 先离开房间
+	manager.leftLobbyOrMap(ctx, client)
+
+	// 再加入房间
+	newRoom.Clients[client.User.Id] = client
+
+	// 把房间里的人推送给自己
+	manager.pushRoomUserList(ctx, newRoom, client.User.Id)
+
+	// 广播消息，有人进来了
+	manager.broadcastUserJoined(ctx, newRoom, client.User)
+
+	return fmt.Errorf("room not found")
+}
+
+// 推送房间用户
+func (manager *Manager) pushRoomUserList(ctx context.Context, room *Room, userId uint64) {
 	users := make([]*User, 0, len(room.Clients))
+
 	for _, c := range room.Clients {
 		if c.User != nil {
 			users = append(users, c.User)
@@ -139,7 +230,7 @@ func (m *Manager) PushRoomUserList(ctx context.Context, room *Room, userId uint6
 	}
 
 	if c, ok := room.Clients[userId]; ok {
-		m.unicastAsync(ctx, c, WSMessage{
+		manager.unicastAsync(ctx, c, WSMessage{
 			Type: MsgTypeRoomUsers,
 			Data: RoomUsersData{RoomId: room.Id, Users: users},
 		})
@@ -147,36 +238,36 @@ func (m *Manager) PushRoomUserList(ctx context.Context, room *Room, userId uint6
 }
 
 // 广播新用户加入
-func (m *Manager) BroadcastUserJoined(ctx context.Context, room *Room, user *User) {
-	m.broadcastAsync(ctx, room, WSMessage{
+func (manager *Manager) broadcastUserJoined(ctx context.Context, room *Room, user *User) {
+	manager.broadcastAsync(ctx, room, WSMessage{
 		Type: MsgTypeUserJoined,
 		Data: UserEventData{RoomId: room.Id, User: user},
 	}, user)
 }
 
 // 广播用户离开房间
-func (m *Manager) BroadcastUserLeft(ctx context.Context, room *Room, user *User) {
-	m.broadcastAsync(ctx, room, WSMessage{
+func (manager *Manager) broadcastUserLeft(ctx context.Context, room *Room, user *User) {
+	manager.broadcastAsync(ctx, room, WSMessage{
 		Type: MsgTypeUserLeft,
 		Data: UserEventData{RoomId: room.Id, User: user},
 	}, user)
 }
 
 // 移除 client
-func (m *Manager) RemoveClient(ctx context.Context, userId uint64) {
-	m.mu.Lock()
-	client, ok := m.clients[userId]
+func (manager *Manager) removeClient(ctx context.Context, userId uint64) {
+	manager.mu.Lock()
+	client, ok := manager.clients[userId]
 	if !ok {
-		m.mu.Unlock()
+		manager.mu.Unlock()
 		return
 	}
 
 	g.Log("test").Async().Infof(ctx, "用户 %s 退出", client.User.Nickname)
 
-	delete(m.clients, userId)
+	delete(manager.clients, userId)
 
 	var room *Room
-	for _, list := range m.rooms {
+	for _, list := range manager.rooms {
 		for _, r := range list {
 			if _, exists := r.Clients[userId]; exists {
 				delete(r.Clients, userId)
@@ -189,22 +280,26 @@ func (m *Manager) RemoveClient(ctx context.Context, userId uint64) {
 			break
 		}
 	}
-	m.mu.Unlock()
+	manager.mu.Unlock()
 
 	if room != nil {
-		m.broadcastAsync(ctx, room, WSMessage{
-			Type: MsgTypeUserLeft,
-			Data: UserEventData{RoomId: room.Id, User: client.User},
-		}, nil)
+		manager.broadcastUserLeft(ctx, room, client.User)
 	}
 }
 
+func (manager *Manager) error(ctx context.Context, client *Client, err error) {
+	manager.unicastAsync(ctx, client, WSMessage{
+		Type: MsgTypeError,
+		Data: err.Error(),
+	})
+}
+
 // 广播消息
-func (m *Manager) broadcastAsync(ctx context.Context, room *Room, msg WSMessage, user *User) {
+func (manager *Manager) broadcastAsync(ctx context.Context, room *Room, msg WSMessage, user *User) {
 	dataStr, _ := gjson.EncodeString(msg)
 	data := []byte(dataStr)
 
-	m.mu.RLock()
+	manager.mu.RLock()
 
 	clients := make([]*Client, 0, len(room.Clients))
 	for _, c := range room.Clients {
@@ -212,7 +307,7 @@ func (m *Manager) broadcastAsync(ctx context.Context, room *Room, msg WSMessage,
 			clients = append(clients, c)
 		}
 	}
-	m.mu.RUnlock()
+	manager.mu.RUnlock()
 
 	for _, c := range clients {
 		select {
@@ -224,7 +319,7 @@ func (m *Manager) broadcastAsync(ctx context.Context, room *Room, msg WSMessage,
 }
 
 // 单发消息
-func (m *Manager) unicastAsync(ctx context.Context, c *Client, msg WSMessage) {
+func (manager *Manager) unicastAsync(ctx context.Context, c *Client, msg WSMessage) {
 	dataStr, _ := gjson.EncodeString(msg)
 	data := []byte(dataStr)
 	select {
