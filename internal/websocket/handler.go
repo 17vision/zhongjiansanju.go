@@ -3,6 +3,7 @@ package websocket
 import (
 	"net/http"
 	"zjsj/internal/pkg/utils"
+	"zjsj/internal/service"
 
 	"github.com/gogf/gf/v2/frame/g"
 	"github.com/gogf/gf/v2/net/ghttp"
@@ -12,7 +13,7 @@ import (
 var manager *Manager
 
 func init() {
-	manager = NewManager(50, 30)
+	manager = NewManager(50, 6)
 }
 
 func BindRouters(s *ghttp.Server) {
@@ -20,7 +21,15 @@ func BindRouters(s *ghttp.Server) {
 	s.SetSwaggerPath("")
 
 	s.Group("/ws", func(group *ghttp.RouterGroup) {
+		group.Middleware(service.Miiddleware().CORS)
+
 		group.GET("/test", testHandler)
+
+		group.POST("/user", userHandler)
+
+		group.POST("/start", startHandler)
+
+		group.GET("/rooms", getRoomsHandler)
 	})
 
 	s.BindHandler("/ws/connect", websocketHandler)
@@ -50,9 +59,26 @@ func websocketHandler(r *ghttp.Request) {
 	}
 
 	// 收到的第一个消息必须是用户信息
+	// var user User
+	// if err = conn.ReadJSON(&user); err != nil {
+	// 	g.Log().Error(ctx, "read user err:", err)
+	// 	return
+	// }
 	var user User
-	if err = conn.ReadJSON(&user); err != nil {
-		g.Log().Error(ctx, "read user err:", err)
+	var temp = manager.getUser(string(rune(manager.lastId)))
+	if temp != nil {
+		user = User{
+			Id:       temp.Id,
+			Nickname: temp.Nickname,
+			Gender:   temp.Gender,
+			Avatar:   temp.Avatar,
+			Extend: &UserExtend{
+				IsReady: false,
+			},
+		}
+	} else {
+		r.Response.WriteStatusExit(http.StatusInternalServerError, "getUser failed")
+		conn.Close()
 		return
 	}
 
@@ -84,6 +110,68 @@ func websocketHandler(r *ghttp.Request) {
 
 	// 广播消息，有人进来了
 	manager.broadcastUserJoined(ctx, room, &user)
+}
+
+func userHandler(r *ghttp.Request) {
+	device_id := r.Get("device_id").String()
+
+	if device_id == "" {
+		r.Response.WriteHeader(http.StatusForbidden)
+		r.Response.WriteJson(map[string]any{"message": "请传设备 id"})
+		return
+	}
+
+	user := manager.getUser(device_id)
+
+	r.Response.WriteHeader(http.StatusOK)
+
+	r.Response.WriteJson(user)
+}
+
+func startHandler(r *ghttp.Request) {
+	roomId := r.Get("roomId").String()
+
+	if roomId == "" {
+		r.Response.WriteHeader(http.StatusForbidden)
+		r.Response.WriteJson(map[string]any{"message": "请传房间 id"})
+		return
+	}
+
+	result := manager.start(r.GetCtx(), roomId)
+
+	r.Response.WriteHeader(http.StatusOK)
+
+	r.Response.WriteJson(map[string]any{"result": result})
+}
+
+type OutRoom struct {
+	*Room
+	UserLength int  `json:"userLength"`
+	AllReady   bool `json:"allReady"`
+}
+
+func getRoomsHandler(r *ghttp.Request) {
+
+	r.Response.WriteHeader(http.StatusOK)
+
+	out := make([]OutRoom, 0, len(manager.rooms[RoomTypeMap]))
+
+	for _, item1 := range manager.rooms[RoomTypeMap] {
+		readyNum := 0
+		for _, item2 := range item1.Clients {
+			if item2.User.Extend.IsReady {
+				readyNum++
+			}
+		}
+
+		out = append(out, OutRoom{
+			Room:       item1,
+			UserLength: len(item1.Clients),
+			AllReady:   readyNum == len(item1.Clients),
+		})
+	}
+
+	r.Response.WriteJson(map[string]any{"clients": manager.clients, "rooms": out})
 }
 
 func testHandler(r *ghttp.Request) {

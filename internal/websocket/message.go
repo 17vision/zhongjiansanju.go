@@ -36,8 +36,9 @@ type RoomUsersData struct {
 
 // UserEventData 用户进出房间事件消息体
 type UserEventData struct {
-	RoomId string `json:"roomId"` // 房间ID
-	User   *User  `json:"user"`   // 用户信息
+	RoomId    string `json:"roomId"`    // 房间ID
+	User      *User  `json:"user"`      // 用户信息
+	PosConfig string `json:"posConfig"` //位置配置信息
 }
 
 type Envelope struct {
@@ -51,6 +52,7 @@ var ReadMessageHandlers = map[string]ReadMessageHandlerFunc{
 	"chat":            ChatHandler,
 	"createOrJoinMap": CreateOrJoinMapHandler,
 	"joinRoom":        JoinRoomHandler,
+	"userIsReady":     UserReadyHandler,
 }
 
 func ChatHandler(ctx context.Context, manager *Manager, client *Client, message interface{}) error {
@@ -83,6 +85,12 @@ func CreateOrJoinMapHandler(ctx context.Context, manager *Manager, client *Clien
 
 	g.Log("test").Async().Infof(ctx, "用户 %s 创建或进入地图 %s", client.User.Nickname, room.Id)
 
+	// 发给自己，加入了房间
+	manager.unicastAsync(ctx, client, WSMessage{
+		Type: MsgTypeJoined,
+		Data: UserEventData{RoomId: room.Id, User: client.User, PosConfig: posJson},
+	})
+
 	// 把房间里的人推送给自己
 	manager.pushRoomUserList(ctx, room, client.User.Id)
 
@@ -100,6 +108,11 @@ func JoinRoomHandler(ctx context.Context, manager *Manager, client *Client, mess
 	if err != nil {
 		manager.error(ctx, client, err)
 	}
+	return nil
+}
+
+func UserReadyHandler(ctx context.Context, manager *Manager, client *Client, message interface{}) error {
+	client.User.Extend.IsReady = true
 	return nil
 }
 

@@ -3,6 +3,7 @@ package websocket
 import (
 	"context"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/gogf/gf/v2/encoding/gjson"
@@ -18,12 +19,24 @@ const (
 	RoomTypeMap   RoomType = "map"   // 地图
 )
 
+type RoomStatus int
+
+const (
+	RoomStatusWating  RoomStatus = 0
+	RoomStatusPlaying RoomStatus = 1
+)
+
 type Room struct {
-	Id      string             `json:"id"`
-	Type    RoomType           `json:"type"`
-	Name    string             `json:"name"`
-	Clients map[uint64]*Client `json:"clients"`
+	Id        string             `json:"id"`
+	Type      RoomType           `json:"type"`
+	Name      string             `json:"name"`
+	Capacity  int                `json:"capacity"`
+	Clients   map[uint64]*Client `json:"clients"`
+	Usernames []string           `json:"usernames"`
+	Status    RoomStatus         `json:"roomStatus"`
 }
+
+var Room_Usernames = []string{"启钥", "建辰", "星启", "寰宇", "承光", "拓先"}
 
 type Gender int
 
@@ -33,22 +46,29 @@ const (
 	GenderFemale  Gender = 2
 )
 
+type UserExtend struct {
+	IsReady bool `json:"isReady"`
+}
+
 type User struct {
-	Id       uint64 `json:"id"`
-	Nickname string `json:"nickname"`
-	Gender   Gender `json:"gender"`
-	Avatar   string `json:"avatar"`
+	Id       uint64      `json:"id"`
+	Nickname string      `json:"nickname"`
+	Gender   Gender      `json:"gender"`
+	Avatar   string      `json:"avatar"`
+	Extend   *UserExtend `json:"extend"`
 }
 
 // 客户端
 type Client struct {
-	User     *User           `json:"user" sm:"用户信息"`
-	RoomType RoomType        `json:"roomType" sm:"房间类型"`
-	RoomId   string          `json:"roomId" sm:"房间Id"`
-	conn     *websocket.Conn `sm:"websocket.Conn"`
-	send     chan []byte     `sm:"异步写队列"`
-	done     chan struct{}   `sm:"关闭信号"`
-	mu       sync.Mutex      `sm:"保护 conn 置 nil"`
+	User      *User           `json:"user" sm:"用户信息"`
+	RoomType  RoomType        `json:"roomType" sm:"房间类型"`
+	RoomId    string          `json:"roomId" sm:"房间Id"`
+	conn      *websocket.Conn `sm:"websocket.Conn"`
+	send      chan []byte     `sm:"异步写队列"`
+	done      chan struct{}   `sm:"关闭信号"`
+	mu        sync.Mutex      `sm:"保护 conn 置 nil"`
+	closeOnce sync.Once
+	closed    uint32
 }
 
 const (
@@ -56,6 +76,24 @@ const (
 	pingPeriod     = 54 * time.Second
 	writeWait      = 10 * time.Second
 )
+
+// 安全关闭 client：先标记已关闭，关闭 done、conn，再关闭 send（只做一次）
+func (c *Client) Close() {
+	c.closeOnce.Do(func() {
+		atomic.StoreUint32(&c.closed, 1)
+		// 通知 pump 退出
+		close(c.done)
+		// 先关闭底层连接，触发 readPump/writePump 退出
+		_ = c.conn.Close()
+		// 关闭 send，writePump 会因为 chan 关闭而退出
+		close(c.send)
+	})
+}
+
+// 判断是否已关闭
+func (c *Client) IsClosed() bool {
+	return atomic.LoadUint32(&c.closed) == 1
+}
 
 // 读泵：只负责读 + 出错时清理
 func (c *Client) readPump(ctx context.Context, m *Manager) {
@@ -101,6 +139,8 @@ func (c *Client) readPump(ctx context.Context, m *Manager) {
 			payload = new(CreateOrJoinMapReq)
 		case "JoinRoomHandler":
 			payload = new(JoinRoomReq)
+		case "userIsReady":
+			payload = nil
 		default:
 			continue
 		}

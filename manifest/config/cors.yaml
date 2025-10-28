@@ -1,0 +1,9 @@
+
+cors:
+  admin:
+   allow_domain: ["localhost:5173"]
+   allow_origin: "http://localhost:5173"
+   allow_credentials: "false"
+   allow_methods: "POST,GET,OPTIONS,PUT,PATCH,DELETE"
+  #  allow_headers: "Accept,Content-Type,Referer,User-Agent,Origin,X-Requested-With,X-XSRF-TOKEN,X-CSRF-TOKEN,Authorization,Sign,Time"
+   allow_headers: "*"

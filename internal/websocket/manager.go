@@ -3,7 +3,10 @@ package websocket
 import (
 	"context"
 	"fmt"
+	"math/rand"
 	"sync"
+	"time"
+	"zjsj/internal/pkg/utils"
 
 	"github.com/gogf/gf/v2/encoding/gjson"
 	"github.com/gogf/gf/v2/errors/gerror"
@@ -17,6 +20,11 @@ type Manager struct {
 	clients       map[uint64]*Client
 	lobbyCapacity int
 	mapCapacity   int
+	userLocks     sync.Map
+
+	// 活着的用户
+	liveUsers map[string]*User
+	lastId    uint64
 }
 
 func NewManager(lobbyCap, mapCap int) *Manager {
@@ -25,22 +33,107 @@ func NewManager(lobbyCap, mapCap int) *Manager {
 		rooms:         make(map[RoomType][]*Room),
 		lobbyCapacity: lobbyCap,
 		mapCapacity:   mapCap,
+		liveUsers:     make(map[string]*User),
+		lastId:        0,
 	}
+}
+
+func (manager *Manager) getUser(device_id string) *User {
+	user, had := manager.liveUsers[device_id]
+	if had && user != nil {
+		return user
+	}
+
+	manager.mu.Lock()
+
+	var getName func() utils.NameResult
+	getName = func() utils.NameResult {
+		n := utils.RandomName()
+
+		for _, u := range manager.liveUsers {
+			if u != nil && u.Nickname == n.Name {
+				return getName()
+			}
+		}
+		return n
+	}
+
+	name := getName()
+
+	user = &User{
+		Id:       manager.lastId + 1,
+		Nickname: name.Name,
+		Gender:   Gender(name.Gender),
+		Avatar:   name.Avatar,
+	}
+
+	manager.liveUsers[device_id] = user
+	manager.lastId++
+	manager.mu.Unlock()
+	return user
 }
 
 // 创建一个 Client
 func (manager *Manager) createClient(ctx context.Context, user *User, conn *websocket.Conn) *Client {
-	// 异地登录
-	manager.kickClient(ctx, user, "异地登录")
+	// 按 userId 串行化，避免并发接入互相覆盖或相互踢到对方
+	v, _ := manager.userLocks.LoadOrStore(user.Id, &sync.Mutex{})
+	um := v.(*sync.Mutex)
+	um.Lock()
+	defer um.Unlock()
 
+	// 在全局锁内：查找并原子移除旧 client（但不要在持锁时做网络/阻塞操作）
 	manager.mu.Lock()
+	oldClient, hadOld := manager.clients[user.Id]
+	var oldRoom *Room
+	if hadOld && oldClient != nil {
+		// 从 room 中移除（找到第一个包含该 user 的 room）
+		for _, list := range manager.rooms {
+			for _, room := range list {
+				if _, exists := room.Clients[user.Id]; exists {
+					delete(room.Clients, user.Id)
+					oldRoom = room
+					break
+				}
+			}
 
+			if oldRoom != nil {
+				break
+			}
+		}
+		// 从 manager.clients 中移除旧客户端
+		delete(manager.clients, user.Id)
+	}
+
+	// 创建并立即注册新 client（保证 manager.clients 总是指向最新 client）
 	client := &Client{User: user, conn: conn, send: make(chan []byte, 256), done: make(chan struct{})}
-
 	manager.clients[user.Id] = client
-
 	manager.mu.Unlock()
 
+	// 现在在不持全局锁的情况下通知旧连接并关闭资源
+	if hadOld && oldClient != nil {
+		g.Log("test").Async().Infof(ctx, "%s 被踢下线通知", oldClient.User.Nickname)
+
+		// 先发通知
+		manager.unicastAsync(ctx, oldClient, WSMessage{
+			Type: MsgTypeKicked,
+			Data: map[string]any{"reason": "异地登录"},
+		})
+
+		// 广播旧用户离开旧房间（如果有）
+		if oldRoom != nil {
+			manager.broadcastAsync(ctx, oldRoom, WSMessage{
+				Type: MsgTypeUserLeft,
+				Data: UserEventData{RoomId: oldRoom.Id, User: oldClient.User},
+			}, nil)
+		}
+
+		// 关闭旧连接的资源（确保不会阻塞）
+		go func(c *Client) {
+			// 优雅关闭：关闭 websocket 连接、关闭发送通道等（根据 client.go 的实现调整）
+			// 关闭 send chan、done 等需要按你现有 client 实现安全处理
+			c.Close()
+		}(oldClient)
+	}
 	return client
 }
 
@@ -88,6 +181,10 @@ func (manager *Manager) KickRoom(ctx context.Context, room *Room, user *User, re
 	// 广播用户离开房间
 	manager.broadcastUserLeft(ctx, room, user)
 
+	if len(room.Clients) == 0 {
+		manager.destroyRoom()
+	}
+
 	// 进入或创建房间
 	room = manager.createOrJoinLobby(client)
 
@@ -114,7 +211,7 @@ func (manager *Manager) createOrJoinLobby(client *Client) *Room {
 	}
 
 	roomId := fmt.Sprintf("lobby-%d", len(manager.rooms[RoomTypeLobby])+1)
-	room := &Room{Id: roomId, Name: "大厅", Type: RoomTypeLobby, Clients: make(map[uint64]*Client)}
+	room := &Room{Id: roomId, Name: "大厅", Type: RoomTypeLobby, Capacity: manager.lobbyCapacity, Clients: make(map[uint64]*Client)}
 	client.RoomId = room.Id
 	room.Clients[client.User.Id] = client
 	manager.rooms[RoomTypeLobby] = append(manager.rooms[RoomTypeLobby], room)
@@ -129,21 +226,57 @@ func (manager *Manager) createOrJoinMap(client *Client, mapBase string) *Room {
 	client.RoomType = RoomTypeMap
 
 	for _, room := range manager.rooms[RoomTypeMap] {
-		if room.Id == mapBase || len(room.Clients) < manager.mapCapacity {
+		// 房间是 wating 状态,并且人数小于设定人数,才可以进(假如存在多个没满,当前逻辑不存在.就应该可以指定房间进的概念)
+		if room.Status == RoomStatusWating && len(room.Clients) < manager.mapCapacity {
 			client.RoomId = room.Id
 			room.Clients[client.User.Id] = client
+
+			// 分配名字
+			manager.assignNames(room, client.User)
 			return room
 		}
 	}
 
 	// create new map instance
 	rid := fmt.Sprintf("%s-%d", mapBase, len(manager.rooms[RoomTypeMap])+1)
-	room := &Room{Id: rid, Type: RoomTypeMap, Name: "地图", Clients: make(map[uint64]*Client)}
+	room := &Room{Id: rid, Type: RoomTypeMap, Name: "地图", Capacity: manager.mapCapacity, Clients: make(map[uint64]*Client), Status: RoomStatusWating, Usernames: Room_Usernames}
 
 	client.RoomId = room.Id
 	room.Clients[client.User.Id] = client
 	manager.rooms[RoomTypeMap] = append(manager.rooms[RoomTypeMap], room)
+
+	// 分配名字
+	manager.assignNames(room, client.User)
 	return room
+}
+
+// 分配名字
+func (manager *Manager) assignNames(room *Room, user *User) bool {
+	if len(room.Usernames) == 0 {
+		return false
+	}
+
+	r := rand.New(rand.NewSource(time.Now().UnixNano()))
+
+	index := r.Intn(len(room.Usernames))
+
+	username := room.Usernames[index]
+
+	room.Usernames = append(room.Usernames[:index], room.Usernames[index+1:]...)
+
+	user.Nickname = username
+	user.Avatar = fmt.Sprintf("https://api.dicebear.com/7.x/avataaars/svg?seed=%s", username)
+	user.Extend.IsReady = false
+	return true
+}
+
+func (manager *Manager) recycleNames(room *Room, name string) bool {
+	room.Usernames = append(room.Usernames, name)
+
+	if len(room.Clients) == 0 {
+		room.Status = RoomStatusWating
+	}
+	return true
 }
 
 // 离开大厅或房间
@@ -162,7 +295,15 @@ func (manager *Manager) leftLobbyOrMap(ctx context.Context, client *Client) {
 	manager.mu.Unlock()
 
 	if room != nil {
+		if room.Type == RoomTypeMap {
+			manager.recycleNames(room, client.User.Nickname)
+		}
+
 		manager.broadcastUserLeft(ctx, room, client.User)
+
+		if len(room.Clients) == 0 {
+			manager.destroyRoom()
+		}
 	} else {
 		g.Log("test").Async().Infof(ctx, "用户 %s 离开房间失败，找不到房间 %s", client.User.Nickname, client.RoomId)
 	}
@@ -217,6 +358,35 @@ func (manager *Manager) JoinRoom(ctx context.Context, userId uint64, roomID stri
 	manager.broadcastUserJoined(ctx, newRoom, client.User)
 
 	return fmt.Errorf("room not found")
+}
+
+func (manager *Manager) start(ctx context.Context, roomId string) bool {
+	var room *Room
+	for _, list := range manager.rooms {
+		for _, r := range list {
+			if r.Id == roomId {
+				room = r
+				break
+			}
+		}
+
+		if room != nil {
+			break
+		}
+	}
+
+	if room != nil {
+		room.Status = RoomStatusPlaying
+
+		manager.broadcastAsync(ctx, room, WSMessage{
+			Type: MsgTypeStartGame,
+			Data: nil,
+		}, nil)
+
+		return true
+	}
+
+	return false
 }
 
 // 推送房间用户
@@ -283,7 +453,35 @@ func (manager *Manager) removeClient(ctx context.Context, userId uint64) {
 	manager.mu.Unlock()
 
 	if room != nil {
+		// 回收名字
+		if room.Type == RoomTypeMap {
+			manager.recycleNames(room, client.User.Nickname)
+		}
 		manager.broadcastUserLeft(ctx, room, client.User)
+
+		if len(room.Clients) == 0 {
+			manager.destroyRoom()
+		}
+	}
+
+	if len(manager.clients) == 0 {
+		manager.lastId = 0
+	}
+}
+
+func (manager *Manager) destroyRoom() {
+	manager.mu.Lock()
+
+	defer manager.mu.Unlock()
+
+	for index, list := range manager.rooms {
+		filtered := list[:0]
+		for _, r := range list {
+			if len(r.Clients) > 0 {
+				filtered = append(filtered, r)
+			}
+		}
+		manager.rooms[index] = filtered
 	}
 }
 
@@ -310,6 +508,10 @@ func (manager *Manager) broadcastAsync(ctx context.Context, room *Room, msg WSMe
 	manager.mu.RUnlock()
 
 	for _, c := range clients {
+		if c.IsClosed() {
+			continue
+		}
+
 		select {
 		case c.send <- data:
 		default:
@@ -320,6 +522,10 @@ func (manager *Manager) broadcastAsync(ctx context.Context, room *Room, msg WSMe
 
 // 单发消息
 func (manager *Manager) unicastAsync(ctx context.Context, c *Client, msg WSMessage) {
+	if c == nil || c.IsClosed() {
+		return
+	}
+
 	dataStr, _ := gjson.EncodeString(msg)
 	data := []byte(dataStr)
 	select {
