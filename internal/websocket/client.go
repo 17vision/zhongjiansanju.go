@@ -34,6 +34,7 @@ type Room struct {
 	Clients   map[uint64]*Client `json:"clients"`
 	Usernames []string           `json:"usernames"`
 	Status    RoomStatus         `json:"roomStatus"`
+	StartTime int64              `json:"startTime"`
 }
 
 var Room_Usernames = []string{"启钥", "建辰", "星启", "寰宇", "承光", "拓先"}

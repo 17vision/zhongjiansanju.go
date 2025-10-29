@@ -2,6 +2,8 @@ package websocket
 
 import (
 	"net/http"
+	"regexp"
+	"time"
 	"zjsj/internal/pkg/utils"
 	"zjsj/internal/service"
 
@@ -146,32 +148,44 @@ func startHandler(r *ghttp.Request) {
 
 type OutRoom struct {
 	*Room
-	UserLength int  `json:"userLength"`
-	AllReady   bool `json:"allReady"`
+	UserLength    int   `json:"userLength"`
+	AllReady      bool  `json:"allReady"`
+	StartDuration int64 `json:'startDuration'`
 }
 
 func getRoomsHandler(r *ghttp.Request) {
-
-	r.Response.WriteHeader(http.StatusOK)
-
-	out := make([]OutRoom, 0, len(manager.rooms[RoomTypeMap]))
-
-	for _, item1 := range manager.rooms[RoomTypeMap] {
-		readyNum := 0
-		for _, item2 := range item1.Clients {
-			if item2.User.Extend.IsReady {
-				readyNum++
-			}
-		}
-
-		out = append(out, OutRoom{
-			Room:       item1,
-			UserLength: len(item1.Clients),
-			AllReady:   readyNum == len(item1.Clients),
-		})
+	name := r.Get("name").String()
+	if name == "" {
+		r.Response.WriteHeader(http.StatusForbidden)
+		r.Response.WriteJson(map[string]any{"message": "请提供房间 id"})
 	}
 
-	r.Response.WriteJson(map[string]any{"clients": manager.clients, "rooms": out})
+	reg := regexp.MustCompile(`^[^-]+-[1-9]\d*$`)
+
+	outRooms := make([]OutRoom, 0, len(manager.rooms[RoomTypeMap]))
+
+	for _, item1 := range manager.rooms[RoomTypeMap] {
+		if reg.MatchString(item1.Id) {
+			readyNum := 0
+			allNum := 0
+			for _, item2 := range item1.Clients {
+				allNum++
+				if item2.User.Extend.IsReady {
+					readyNum++
+				}
+			}
+
+			outRooms = append(outRooms, OutRoom{
+				Room:          item1,
+				UserLength:    allNum,
+				AllReady:      readyNum == allNum,
+				StartDuration: time.Now().Unix() - item1.StartTime,
+			})
+		}
+	}
+
+	r.Response.WriteHeader(http.StatusOK)
+	r.Response.WriteJson(map[string]any{"rooms": outRooms})
 }
 
 func testHandler(r *ghttp.Request) {

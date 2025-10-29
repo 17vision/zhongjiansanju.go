@@ -375,8 +375,13 @@ func (manager *Manager) start(ctx context.Context, roomId string) bool {
 		}
 	}
 
+	g.Log("test").Async().Infof(ctx, "开始游戏 %s", roomId)
+
 	if room != nil {
 		room.Status = RoomStatusPlaying
+		room.StartTime = time.Now().Unix()
+
+		g.Log("test").Async().Infof(ctx, "开始游戏, 房间 id = %s, 房间状态 %v", room.Id, room.Status)
 
 		manager.broadcastAsync(ctx, room, WSMessage{
 			Type: MsgTypeStartGame,
@@ -385,6 +390,8 @@ func (manager *Manager) start(ctx context.Context, roomId string) bool {
 
 		return true
 	}
+
+	g.Log("test").Async().Infof(ctx, "开始游戏,房间不存在")
 
 	return false
 }
@@ -464,9 +471,9 @@ func (manager *Manager) removeClient(ctx context.Context, userId uint64) {
 		}
 	}
 
-	if len(manager.clients) == 0 {
-		manager.lastId = 0
-	}
+	// if len(manager.clients) == 0 {
+	// 	manager.lastId = 0
+	// }
 }
 
 func (manager *Manager) destroyRoom() {
