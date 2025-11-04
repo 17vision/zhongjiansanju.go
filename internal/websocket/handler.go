@@ -1,14 +1,17 @@
 package websocket
 
 import (
+	"fmt"
 	"net/http"
 	"regexp"
 	"time"
 	"zjsj/internal/pkg/utils"
 	"zjsj/internal/service"
 
+	"github.com/gogf/gf/v2/encoding/gjson"
 	"github.com/gogf/gf/v2/frame/g"
 	"github.com/gogf/gf/v2/net/ghttp"
+	"github.com/gogf/gf/v2/os/gfile"
 	"github.com/gorilla/websocket"
 )
 
@@ -30,6 +33,8 @@ func BindRouters(s *ghttp.Server) {
 		group.POST("/user", userHandler)
 
 		group.POST("/start", startHandler)
+
+		group.POST("/config", configHandler)
 
 		group.GET("/rooms", getRoomsHandler)
 	})
@@ -146,11 +151,43 @@ func startHandler(r *ghttp.Request) {
 	r.Response.WriteJson(map[string]any{"result": result})
 }
 
+func configHandler(r *ghttp.Request) {
+	json := r.Get("json").String()
+
+	_, err := gjson.DecodeToJson(json)
+	if err != nil {
+		r.Response.WriteHeader(http.StatusForbidden)
+		r.Response.WriteJson(map[string]any{"message": "请传入正确的 json 格式"})
+		return
+	}
+
+	// 1. 绝对路径 & 2. 确保目录存在
+	path := gfile.Join(gfile.Pwd(), "storage", "posJson.json")
+	if err := gfile.Mkdir(gfile.Dir(path)); err != nil {
+		r.Response.WriteHeader(http.StatusInternalServerError)
+		r.Response.WriteJson(map[string]any{"message": "创建目录失败"})
+		return
+	}
+
+	// 3. 原子写（先写临时文件，再 rename）
+	if err := gfile.PutContents(path+".tmp", json); err != nil {
+		r.Response.WriteHeader(http.StatusForbidden)
+		r.Response.WriteJson(map[string]any{"message": "保存 json 失败"})
+	}
+	_ = gfile.Rename(path+".tmp", path)
+
+	manager.posJson = json
+
+	r.Response.WriteHeader(http.StatusOK)
+
+	r.Response.WriteJson(map[string]any{"message": "保存 json 成功"})
+}
+
 type OutRoom struct {
 	*Room
 	UserLength    int   `json:"userLength"`
 	AllReady      bool  `json:"allReady"`
-	StartDuration int64 `json:'startDuration'`
+	StartDuration int64 `json:"startDuration"`
 }
 
 func getRoomsHandler(r *ghttp.Request) {
@@ -160,7 +197,9 @@ func getRoomsHandler(r *ghttp.Request) {
 		r.Response.WriteJson(map[string]any{"message": "请提供房间 id"})
 	}
 
-	reg := regexp.MustCompile(`^[^-]+-[1-9]\d*$`)
+	// reg := regexp.MustCompile(`^[^-]+-[1-9]\d*$`)
+	regStr := fmt.Sprintf(`^%s-[1-9]\d*$`, name)
+	reg := regexp.MustCompile(regStr)
 
 	outRooms := make([]OutRoom, 0, len(manager.rooms[RoomTypeMap]))
 
@@ -175,11 +214,16 @@ func getRoomsHandler(r *ghttp.Request) {
 				}
 			}
 
+			var startDuration int64 = 0
+			if item1.StartTime > 0 {
+				startDuration = time.Now().Unix() - item1.StartTime
+			}
+
 			outRooms = append(outRooms, OutRoom{
 				Room:          item1,
 				UserLength:    allNum,
 				AllReady:      readyNum == allNum,
-				StartDuration: time.Now().Unix() - item1.StartTime,
+				StartDuration: startDuration,
 			})
 		}
 	}

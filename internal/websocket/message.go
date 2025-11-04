@@ -88,7 +88,7 @@ func CreateOrJoinMapHandler(ctx context.Context, manager *Manager, client *Clien
 	// 发给自己，加入了房间
 	manager.unicastAsync(ctx, client, WSMessage{
 		Type: MsgTypeJoined,
-		Data: UserEventData{RoomId: room.Id, User: client.User, PosConfig: posJson},
+		Data: UserEventData{RoomId: room.Id, User: client.User, PosConfig: manager.posJson},
 	})
 
 	// 把房间里的人推送给自己

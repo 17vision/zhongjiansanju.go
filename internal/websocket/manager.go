@@ -11,6 +11,7 @@ import (
 	"github.com/gogf/gf/v2/encoding/gjson"
 	"github.com/gogf/gf/v2/errors/gerror"
 	"github.com/gogf/gf/v2/frame/g"
+	"github.com/gogf/gf/v2/os/gfile"
 	"github.com/gorilla/websocket"
 )
 
@@ -25,9 +26,14 @@ type Manager struct {
 	// 活着的用户
 	liveUsers map[string]*User
 	lastId    uint64
+	posJson   string
 }
 
 func NewManager(lobbyCap, mapCap int) *Manager {
+	path := gfile.Join(gfile.Pwd(), "storage", "posJson.json")
+
+	posJson := gfile.GetContents(path)
+
 	return &Manager{
 		clients:       make(map[uint64]*Client),
 		rooms:         make(map[RoomType][]*Room),
@@ -35,6 +41,7 @@ func NewManager(lobbyCap, mapCap int) *Manager {
 		mapCapacity:   mapCap,
 		liveUsers:     make(map[string]*User),
 		lastId:        0,
+		posJson:       posJson,
 	}
 }
 
@@ -361,6 +368,9 @@ func (manager *Manager) JoinRoom(ctx context.Context, userId uint64, roomID stri
 }
 
 func (manager *Manager) start(ctx context.Context, roomId string) bool {
+	// 先在全局锁内查找并修改房间状态（写操作需锁）
+	manager.mu.Lock()
+
 	var room *Room
 	for _, list := range manager.rooms {
 		for _, r := range list {
@@ -375,25 +385,26 @@ func (manager *Manager) start(ctx context.Context, roomId string) bool {
 		}
 	}
 
-	g.Log("test").Async().Infof(ctx, "开始游戏 %s", roomId)
-
-	if room != nil {
-		room.Status = RoomStatusPlaying
-		room.StartTime = time.Now().Unix()
-
-		g.Log("test").Async().Infof(ctx, "开始游戏, 房间 id = %s, 房间状态 %v", room.Id, room.Status)
-
-		manager.broadcastAsync(ctx, room, WSMessage{
-			Type: MsgTypeStartGame,
-			Data: nil,
-		}, nil)
-
-		return true
+	if room == nil {
+		manager.mu.Unlock()
+		g.Log("test").Async().Infof(ctx, "开始游戏失败，房间不存在: %s", roomId)
+		return false
 	}
 
-	g.Log("test").Async().Infof(ctx, "开始游戏,房间不存在")
+	// 修改房间状态并记录时间（在锁内完成）
+	room.Status = RoomStatusPlaying
+	room.StartTime = time.Now().Unix()
 
-	return false
+	manager.mu.Unlock()
+
+	g.Log("test").Async().Infof(ctx, "开始游戏, 房间 id = %s, 新状态 = %v", roomId, RoomStatusPlaying)
+
+	manager.broadcastAsync(ctx, room, WSMessage{
+		Type: MsgTypeStartGame,
+		Data: nil,
+	}, nil)
+
+	return true
 }
 
 // 推送房间用户
