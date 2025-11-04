@@ -32,11 +32,13 @@ func BindRouters(s *ghttp.Server) {
 
 		group.POST("/user", userHandler)
 
-		group.POST("/start", startHandler)
-
 		group.POST("/config", configHandler)
 
 		group.GET("/rooms", getRoomsHandler)
+
+		group.POST("/start", startHandler)
+
+		group.POST("/scenes", scenesHandler)
 	})
 
 	s.BindHandler("/ws/connect", websocketHandler)
@@ -135,6 +137,11 @@ func userHandler(r *ghttp.Request) {
 	r.Response.WriteJson(user)
 }
 
+func httpResponse(r *ghttp.Request, status int, data map[string]any) {
+	r.Response.WriteHeader(status)
+	r.Response.WriteJson(data)
+}
+
 func startHandler(r *ghttp.Request) {
 	roomId := r.Get("roomId").String()
 
@@ -183,6 +190,41 @@ func configHandler(r *ghttp.Request) {
 	r.Response.WriteJson(map[string]any{"message": "保存 json 成功"})
 }
 
+func scenesHandler(r *ghttp.Request) {
+	mapBase := r.Get("mapBase").String()
+	mapScenes := r.Get("scenes").String()
+	if mapBase == "" || mapScenes == "" {
+		httpResponse(r, http.StatusForbidden, map[string]any{"message": "请传房间Base或Scenes"})
+		return
+	}
+
+	var scenes []*Scene
+	err := gjson.Unmarshal([]byte(mapScenes), &scenes)
+	if err != nil {
+		httpResponse(r, http.StatusForbidden, map[string]any{"message": "场景数据结构错误"})
+		return
+	}
+
+	// 1. 绝对路径 & 2. 确保目录存在
+	path := gfile.Join(gfile.Pwd(), "storage/scenes", mapBase+".json")
+	if err := gfile.Mkdir(gfile.Dir(path)); err != nil {
+		r.Response.WriteHeader(http.StatusInternalServerError)
+		r.Response.WriteJson(map[string]any{"message": "创建目录失败"})
+		return
+	}
+
+	// 3. 原子写（先写临时文件，再 rename）
+	if err := gfile.PutContents(path+".tmp", mapScenes); err != nil {
+		r.Response.WriteHeader(http.StatusForbidden)
+		r.Response.WriteJson(map[string]any{"message": "保存 json 失败"})
+	}
+	_ = gfile.Rename(path+".tmp", path)
+
+	manager.scenes[mapBase] = scenes
+
+	httpResponse(r, http.StatusOK, map[string]any{"scenes": scenes})
+}
+
 type OutRoom struct {
 	*Room
 	UserLength    int   `json:"userLength"`
@@ -198,8 +240,7 @@ func getRoomsHandler(r *ghttp.Request) {
 	}
 
 	// reg := regexp.MustCompile(`^[^-]+-[1-9]\d*$`)
-	regStr := fmt.Sprintf(`^%s-[1-9]\d*$`, name)
-	reg := regexp.MustCompile(regStr)
+	reg := regexp.MustCompile(fmt.Sprintf(`^%s-[1-9]\d*$`, name))
 
 	outRooms := make([]OutRoom, 0, len(manager.rooms[RoomTypeMap]))
 
@@ -228,8 +269,14 @@ func getRoomsHandler(r *ghttp.Request) {
 		}
 	}
 
+	var scenes []byte
+	mapScenes := manager.scenes[name]
+	if mapScenes != nil {
+		scenes, _ = gjson.Marshal(mapScenes)
+	}
+
 	r.Response.WriteHeader(http.StatusOK)
-	r.Response.WriteJson(map[string]any{"rooms": outRooms})
+	r.Response.WriteJson(map[string]any{"rooms": outRooms, "scenes": string(scenes)})
 }
 
 func testHandler(r *ghttp.Request) {

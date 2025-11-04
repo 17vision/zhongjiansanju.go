@@ -39,6 +39,7 @@ type UserEventData struct {
 	RoomId    string `json:"roomId"`    // 房间ID
 	User      *User  `json:"user"`      // 用户信息
 	PosConfig string `json:"posConfig"` //位置配置信息
+	Scenes    string `json:"scenes"`    // 场景配置
 }
 
 type Envelope struct {
@@ -85,10 +86,18 @@ func CreateOrJoinMapHandler(ctx context.Context, manager *Manager, client *Clien
 
 	g.Log("test").Async().Infof(ctx, "用户 %s 创建或进入地图 %s", client.User.Nickname, room.Id)
 
+	var scenes []byte
+	if room.MapBase != "" {
+		roomScenes := manager.scenes[room.MapBase]
+		if roomScenes != nil {
+			scenes, _ = gjson.Marshal(roomScenes)
+		}
+	}
+
 	// 发给自己，加入了房间
 	manager.unicastAsync(ctx, client, WSMessage{
 		Type: MsgTypeJoined,
-		Data: UserEventData{RoomId: room.Id, User: client.User, PosConfig: manager.posJson},
+		Data: UserEventData{RoomId: room.Id, User: client.User, Scenes: string(scenes), PosConfig: manager.posJson},
 	})
 
 	// 把房间里的人推送给自己

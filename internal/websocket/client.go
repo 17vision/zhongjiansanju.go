@@ -28,6 +28,7 @@ const (
 
 type Room struct {
 	Id        string             `json:"id"`
+	MapBase   string             `json:"mapBase"`
 	Type      RoomType           `json:"type"`
 	Name      string             `json:"name"`
 	Capacity  int                `json:"capacity"`
