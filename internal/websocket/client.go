@@ -141,6 +141,8 @@ func (c *Client) readPump(ctx context.Context, m *Manager) {
 			payload = new(CreateOrJoinMapReq)
 		case "JoinRoomHandler":
 			payload = new(JoinRoomReq)
+		case "action":
+			payload = new(ActionReq)
 		case "userIsReady":
 			payload = nil
 		default:

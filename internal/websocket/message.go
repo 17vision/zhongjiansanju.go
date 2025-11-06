@@ -53,6 +53,7 @@ var ReadMessageHandlers = map[string]ReadMessageHandlerFunc{
 	"chat":            ChatHandler,
 	"createOrJoinMap": CreateOrJoinMapHandler,
 	"joinRoom":        JoinRoomHandler,
+	"action":          ActionHandler,
 	"userIsReady":     UserReadyHandler,
 }
 
@@ -120,6 +121,14 @@ func JoinRoomHandler(ctx context.Context, manager *Manager, client *Client, mess
 	return nil
 }
 
+func ActionHandler(ctx context.Context, manager *Manager, client *Client, message interface{}) error {
+	req := message.(*ActionReq)
+
+	g.Log("test").Async().Infof(ctx, "%s 发起 Action = %s", client.User.Nickname, req.Action)
+
+	return nil
+}
+
 func UserReadyHandler(ctx context.Context, manager *Manager, client *Client, message interface{}) error {
 	client.User.Extend.IsReady = true
 	return nil
@@ -141,4 +150,10 @@ type CreateOrJoinMapReq struct {
 
 type JoinRoomReq struct {
 	RoomId string `json:"roomId"`
+}
+
+// 通用行为定义
+type ActionReq struct {
+	Action string      `json:"action"`
+	Data   interface{} `json:"data"`
 }

@@ -5,10 +5,20 @@ import (
 
 	_ "zjsj/internal/logic"
 
+	_ "time/tzdata"
+
 	"github.com/gogf/gf/v2/os/gctx"
+	"github.com/gogf/gf/v2/os/gtime"
 
 	"zjsj/internal/cmd"
 )
+
+func init() {
+	// 关键：设置全局时区
+	if err := gtime.SetTimeZone("Asia/Shanghai"); err != nil {
+		panic(err)
+	}
+}
 
 func main() {
 	cmd.Main.Run(gctx.GetInitCtx())

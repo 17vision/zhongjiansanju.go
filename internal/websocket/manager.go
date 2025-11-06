@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math/rand"
 	"sync"
+	"sync/atomic"
 	"time"
 	"zjsj/internal/pkg/utils"
 
@@ -34,6 +35,8 @@ type Manager struct {
 	lastId    uint64
 	posJson   string
 }
+
+var mapSeq int64
 
 func NewManager(lobbyCap, mapCap int) *Manager {
 	// 读取 posJson 配置文件
@@ -266,8 +269,9 @@ func (manager *Manager) createOrJoinMap(client *Client, mapBase string) *Room {
 	}
 
 	// create new map instance
-	rid := fmt.Sprintf("%s-%d", mapBase, len(manager.rooms[RoomTypeMap])+1)
-	room := &Room{Id: rid, MapBase: mapBase, Type: RoomTypeMap, Name: "地图", Capacity: manager.mapCapacity, Clients: make(map[uint64]*Client), Status: RoomStatusWating, Usernames: Room_Usernames}
+	// rid := fmt.Sprintf("%s-%d", mapBase, len(manager.rooms[RoomTypeMap])+1)
+	rid := fmt.Sprintf("%s-%d", mapBase, atomic.AddInt64(&mapSeq, 1))
+	room := &Room{Id: rid, MapBase: mapBase, Type: RoomTypeMap, Name: "地图", Capacity: manager.mapCapacity, Clients: make(map[uint64]*Client), Status: RoomStatusWating, Usernames: append([]string(nil), Room_Usernames...)}
 
 	client.RoomId = room.Id
 	room.Clients[client.User.Id] = client
