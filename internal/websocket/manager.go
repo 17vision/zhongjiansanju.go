@@ -261,7 +261,7 @@ func (manager *Manager) createOrJoinMap(client *Client, mapBase string) *Room {
 
 	for _, room := range manager.rooms[RoomTypeMap] {
 		// 房间是 wating 状态,并且人数小于设定人数,才可以进(假如存在多个没满,当前逻辑不存在.就应该可以指定房间进的概念)
-		if room.Status == RoomStatusWating && len(room.Clients) < manager.mapCapacity {
+		if room.MapBase == mapBase && room.Status == RoomStatusWating && len(room.Clients) < manager.mapCapacity {
 			client.RoomId = room.Id
 			room.Clients[client.User.Id] = client
 
