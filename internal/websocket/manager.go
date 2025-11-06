@@ -37,6 +37,7 @@ type Manager struct {
 }
 
 var mapSeq int64
+var lobbySeq int64
 
 func NewManager(lobbyCap, mapCap int) *Manager {
 	// 读取 posJson 配置文件
@@ -241,7 +242,9 @@ func (manager *Manager) createOrJoinLobby(client *Client) *Room {
 		}
 	}
 
-	roomId := fmt.Sprintf("lobby-%d", len(manager.rooms[RoomTypeLobby])+1)
+	// roomId := fmt.Sprintf("lobby-%d", len(manager.rooms[RoomTypeLobby])+1)
+	roomId := fmt.Sprintf("lobby-%d", atomic.AddInt64(&lobbySeq, 1))
+
 	room := &Room{Id: roomId, Name: "大厅", Type: RoomTypeLobby, Capacity: manager.lobbyCapacity, Clients: make(map[uint64]*Client)}
 	client.RoomId = room.Id
 	room.Clients[client.User.Id] = client
