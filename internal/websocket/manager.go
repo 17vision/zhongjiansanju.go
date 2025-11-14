@@ -245,10 +245,17 @@ func (manager *Manager) createOrJoinLobby(client *Client) *Room {
 	// roomId := fmt.Sprintf("lobby-%d", len(manager.rooms[RoomTypeLobby])+1)
 	roomId := fmt.Sprintf("lobby-%d", atomic.AddInt64(&lobbySeq, 1))
 
-	room := &Room{Id: roomId, Name: "大厅", Type: RoomTypeLobby, Capacity: manager.lobbyCapacity, Clients: make(map[uint64]*Client)}
+	room := &Room{Id: roomId, Name: "大厅", Type: RoomTypeLobby, Capacity: manager.lobbyCapacity, Clients: make(map[uint64]*Client), SceneIndex: -1}
 	client.RoomId = room.Id
 	room.Clients[client.User.Id] = client
 	manager.rooms[RoomTypeLobby] = append(manager.rooms[RoomTypeLobby], room)
+
+	// 将场景绑定到房间上边
+	scenes, ok := manager.scenes[room.MapBase]
+	if ok {
+		room.Scenes = scenes
+	}
+
 	return room
 }
 
@@ -274,11 +281,17 @@ func (manager *Manager) createOrJoinMap(client *Client, mapBase string) *Room {
 	// create new map instance
 	// rid := fmt.Sprintf("%s-%d", mapBase, len(manager.rooms[RoomTypeMap])+1)
 	rid := fmt.Sprintf("%s-%d", mapBase, atomic.AddInt64(&mapSeq, 1))
-	room := &Room{Id: rid, MapBase: mapBase, Type: RoomTypeMap, Name: "地图", Capacity: manager.mapCapacity, Clients: make(map[uint64]*Client), Status: RoomStatusWating, Usernames: append([]string(nil), Room_Usernames...)}
+	room := &Room{Id: rid, MapBase: mapBase, Type: RoomTypeMap, Name: "地图", Capacity: manager.mapCapacity, Clients: make(map[uint64]*Client), Status: RoomStatusWating, Usernames: append([]string(nil), Room_Usernames...), SceneIndex: -1}
 
 	client.RoomId = room.Id
 	room.Clients[client.User.Id] = client
 	manager.rooms[RoomTypeMap] = append(manager.rooms[RoomTypeMap], room)
+
+	// 将场景绑定到房间上边
+	scenes, ok := manager.scenes[room.MapBase]
+	if ok {
+		room.Scenes = scenes
+	}
 
 	// 分配名字
 	manager.assignNames(room, client.User)
@@ -393,6 +406,38 @@ func (manager *Manager) JoinRoom(ctx context.Context, userId uint64, roomID stri
 	manager.broadcastUserJoined(ctx, newRoom, client.User)
 
 	return fmt.Errorf("room not found")
+}
+
+// 设置当前房间的场景
+func (manager *Manager) changeScene(ctx context.Context, roomId string, index int) bool {
+	manager.mu.Lock()
+
+	var room *Room
+	for _, list := range manager.rooms {
+		for _, r := range list {
+			if r.Id == roomId {
+				room = r
+				break
+			}
+		}
+
+		if room != nil {
+			break
+		}
+	}
+
+	if room == nil {
+		manager.mu.Unlock()
+		g.Log("test").Async().Infof(ctx, "切换场景失败，没找到房间: %s", roomId)
+		return false
+	}
+	manager.mu.Unlock()
+
+	if index > room.SceneIndex && len(room.Scenes) >= (index+1) && index < len(room.Scenes) {
+		room.SceneIndex = index
+		return true
+	}
+	return false
 }
 
 func (manager *Manager) start(ctx context.Context, roomId string) bool {

@@ -5,6 +5,7 @@ import (
 
 	"github.com/gogf/gf/v2/encoding/gjson"
 	"github.com/gogf/gf/v2/frame/g"
+	"github.com/gogf/gf/v2/util/gconv"
 )
 
 // WSMessage WebSocket消息通用结构体
@@ -125,6 +126,11 @@ func ActionHandler(ctx context.Context, manager *Manager, client *Client, messag
 	req := message.(*ActionReq)
 
 	g.Log("test").Async().Infof(ctx, "%s 发起 Action = %s", client.User.Nickname, req.Action)
+
+	if req.Action == "changeScene" {
+		result := manager.changeScene(ctx, client.RoomId, gconv.Int(req.Data))
+		g.Log("test").Async().Infof(ctx, "用户 %d changeScene %d %v ", client.User.Id, gconv.Int(req.Data), result)
+	}
 
 	return nil
 }

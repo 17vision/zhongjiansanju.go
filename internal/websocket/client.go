@@ -27,15 +27,17 @@ const (
 )
 
 type Room struct {
-	Id        string             `json:"id"`
-	MapBase   string             `json:"mapBase"`
-	Type      RoomType           `json:"type"`
-	Name      string             `json:"name"`
-	Capacity  int                `json:"capacity"`
-	Clients   map[uint64]*Client `json:"clients"`
-	Usernames []string           `json:"usernames"`
-	Status    RoomStatus         `json:"roomStatus"`
-	StartTime int64              `json:"startTime"`
+	Id         string             `json:"id"`
+	MapBase    string             `json:"mapBase"`
+	Type       RoomType           `json:"type"`
+	Name       string             `json:"name"`
+	Capacity   int                `json:"capacity"`
+	Clients    map[uint64]*Client `json:"clients"`
+	Usernames  []string           `json:"usernames"`
+	Status     RoomStatus         `json:"roomStatus"`
+	StartTime  int64              `json:"startTime"`
+	Scenes     []*Scene           `json:"scenes"`
+	SceneIndex int                `json:"sceneIndex"`
 }
 
 var Room_Usernames = []string{"启钥", "建辰", "星启", "寰宇", "承光", "拓先"}
