@@ -234,9 +234,19 @@ func getScenesHandler(r *ghttp.Request) {
 		return
 	}
 
-	file, err := gfile.Open(gfile.Join(gfile.Pwd(), "storage/scenes/", mapBase, ".json"))
+	for key, scenes := range manager.scenes {
+		if key == mapBase {
+			httpResponse(r, http.StatusOK, scenes)
+			return
+		}
+	}
+
+	// 这个是从 file 里读
+	fileName := gfile.Join(gfile.Pwd(), "storage/scenes/", mapBase+".json")
+
+	file, err := gfile.Open(gfile.Join(fileName))
 	if err != nil {
-		httpResponse(r, http.StatusForbidden, map[string]any{"message": "场景不存在"})
+		httpResponse(r, http.StatusForbidden, map[string]any{"message": "场景不存在", "error": err.Error()})
 		return
 	}
 
@@ -246,7 +256,6 @@ func getScenesHandler(r *ghttp.Request) {
 		httpResponse(r, http.StatusForbidden, map[string]any{"message": "场景获取失败,请联系管理员"})
 		return
 	}
-
 	httpResponse(r, http.StatusOK, scenes)
 }
 
