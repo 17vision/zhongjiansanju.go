@@ -21,11 +21,18 @@ type Scene struct {
 	Description string `json:"description"`
 }
 
+type MapConfig struct {
+	name     string
+	mapBase  string
+	capacity int
+}
+
 type Manager struct {
 	mu            sync.RWMutex
 	rooms         map[RoomType][]*Room
 	clients       map[uint64]*Client
 	scenes        map[string][]*Scene
+	mapConfigs    map[string]*MapConfig
 	lobbyCapacity int
 	mapCapacity   int
 	userLocks     sync.Map
@@ -41,8 +48,16 @@ var lobbySeq int64
 
 func NewManager(lobbyCap, mapCap int) *Manager {
 	// 读取 posJson 配置文件
-	path := gfile.Join(gfile.Pwd(), "storage", "posJson.json")
-	posJson := gfile.GetContents(path)
+	posPath := gfile.Join(gfile.Pwd(), "storage", "posJson.json")
+	posJson := gfile.GetContents(posPath)
+
+	// 读取
+	var mapConfigs map[string]*MapConfig = make(map[string]*MapConfig)
+	mapPath := gfile.Join(gfile.Pwd(), "storage", "mapConfig.json")
+	mapConfig := gfile.GetContents(mapPath)
+	if mapConfig != "" {
+		gjson.Unmarshal([]byte(mapConfig), &mapConfigs)
+	}
 
 	// 读取场景配置文件
 	scenes := make(map[string][]*Scene)
@@ -62,6 +77,7 @@ func NewManager(lobbyCap, mapCap int) *Manager {
 		clients:       make(map[uint64]*Client),
 		rooms:         make(map[RoomType][]*Room),
 		scenes:        scenes,
+		mapConfigs:    mapConfigs,
 		lobbyCapacity: lobbyCap,
 		mapCapacity:   mapCap,
 		liveUsers:     make(map[string]*User),
@@ -266,9 +282,15 @@ func (manager *Manager) createOrJoinMap(client *Client, mapBase string) *Room {
 
 	client.RoomType = RoomTypeMap
 
+	mapCapacity := manager.mapCapacity
+	mapConfig := manager.mapConfigs[mapBase]
+	if mapConfig != nil {
+		mapCapacity = mapConfig.capacity
+	}
+
 	for _, room := range manager.rooms[RoomTypeMap] {
 		// 房间是 wating 状态,并且人数小于设定人数,才可以进(假如存在多个没满,当前逻辑不存在.就应该可以指定房间进的概念)
-		if room.MapBase == mapBase && room.Status == RoomStatusWating && len(room.Clients) < manager.mapCapacity {
+		if room.MapBase == mapBase && room.Status == RoomStatusWating && len(room.Clients) < mapCapacity {
 			client.RoomId = room.Id
 			room.Clients[client.User.Id] = client
 
@@ -281,7 +303,7 @@ func (manager *Manager) createOrJoinMap(client *Client, mapBase string) *Room {
 	// create new map instance
 	// rid := fmt.Sprintf("%s-%d", mapBase, len(manager.rooms[RoomTypeMap])+1)
 	rid := fmt.Sprintf("%s-%d", mapBase, atomic.AddInt64(&mapSeq, 1))
-	room := &Room{Id: rid, MapBase: mapBase, Type: RoomTypeMap, Name: "地图", Capacity: manager.mapCapacity, Clients: make(map[uint64]*Client), Status: RoomStatusWating, Usernames: append([]string(nil), Room_Usernames...), SceneIndex: -1}
+	room := &Room{Id: rid, MapBase: mapBase, Type: RoomTypeMap, Name: "地图", Capacity: mapCapacity, Clients: make(map[uint64]*Client), Status: RoomStatusWating, Usernames: append([]string(nil), Room_Usernames...), SceneIndex: -1}
 
 	client.RoomId = room.Id
 	room.Clients[client.User.Id] = client
@@ -387,6 +409,10 @@ func (manager *Manager) JoinRoom(ctx context.Context, userId uint64, roomID stri
 		max = manager.lobbyCapacity
 	} else {
 		max = manager.mapCapacity
+		mapConfig := manager.mapConfigs[newRoom.MapBase]
+		if mapConfig != nil {
+			max = mapConfig.capacity
+		}
 	}
 
 	if len(newRoom.Clients) >= max {
