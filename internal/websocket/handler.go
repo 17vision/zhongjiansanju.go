@@ -243,7 +243,7 @@ func getScenesHandler(r *ghttp.Request) {
 	content := gfile.GetContents(file.Name())
 	var scenes []*Scene
 	if err = gjson.Unmarshal([]byte(content), &scenes); err != nil {
-		httpResponse(r, http.StatusForbidden, map[string]any{"message": "场景不存在,请联系管理员"})
+		httpResponse(r, http.StatusForbidden, map[string]any{"message": "场景获取失败,请联系管理员"})
 		return
 	}
 
