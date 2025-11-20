@@ -39,6 +39,8 @@ func BindRouters(s *ghttp.Server) {
 		group.POST("/start", startHandler)
 
 		group.POST("/scenes", scenesHandler)
+
+		group.GET("/scenes", getScenesHandler)
 	})
 
 	s.BindHandler("/ws/connect", websocketHandler)
@@ -137,7 +139,7 @@ func userHandler(r *ghttp.Request) {
 	r.Response.WriteJson(user)
 }
 
-func httpResponse(r *ghttp.Request, status int, data map[string]any) {
+func httpResponse(r *ghttp.Request, status int, data interface{}) {
 	r.Response.WriteHeader(status)
 	r.Response.WriteJson(data)
 }
@@ -222,7 +224,30 @@ func scenesHandler(r *ghttp.Request) {
 
 	manager.scenes[mapBase] = scenes
 
-	httpResponse(r, http.StatusOK, map[string]any{"scenes": scenes})
+	httpResponse(r, http.StatusOK, map[string]any{"message": "保存 json 成功"})
+}
+
+func getScenesHandler(r *ghttp.Request) {
+	mapBase := r.Get("mapBase").String()
+	if mapBase == "" {
+		httpResponse(r, http.StatusForbidden, map[string]any{"message": "请传房间Base"})
+		return
+	}
+
+	file, err := gfile.Open(gfile.Join(gfile.Pwd(), "storage/scenes/", mapBase, ".json"))
+	if err != nil {
+		httpResponse(r, http.StatusForbidden, map[string]any{"message": "场景不存在"})
+		return
+	}
+
+	content := gfile.GetContents(file.Name())
+	var scenes []*Scene
+	if err = gjson.Unmarshal([]byte(content), &scenes); err != nil {
+		httpResponse(r, http.StatusForbidden, map[string]any{"message": "场景不存在,请联系管理员"})
+		return
+	}
+
+	httpResponse(r, http.StatusOK, scenes)
 }
 
 type OutRoom struct {
