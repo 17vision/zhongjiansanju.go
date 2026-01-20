@@ -1,9 +1,7 @@
 package websocket
 
 import (
-	"fmt"
 	"net/http"
-	"regexp"
 	"time"
 	"zjsj/internal/pkg/utils"
 	"zjsj/internal/service"
@@ -38,7 +36,7 @@ func BindRouters(s *ghttp.Server) {
 
 		group.POST("/start", startHandler)
 
-		group.POST("/scenes", scenesHandler)
+		group.POST("/scenes", storeScenesHandler)
 
 		group.GET("/scenes", getScenesHandler)
 	})
@@ -192,7 +190,7 @@ func configHandler(r *ghttp.Request) {
 	r.Response.WriteJson(map[string]any{"message": "保存 json 成功"})
 }
 
-func scenesHandler(r *ghttp.Request) {
+func storeScenesHandler(r *ghttp.Request) {
 	mapBase := r.Get("mapBase").String()
 	mapScenes := r.Get("scenes").String()
 	if mapBase == "" || mapScenes == "" {
@@ -267,19 +265,19 @@ type OutRoom struct {
 }
 
 func getRoomsHandler(r *ghttp.Request) {
-	name := r.Get("name").String()
-	if name == "" {
+	mapBase := r.Get("mapBase").String()
+	if mapBase == "" {
 		r.Response.WriteHeader(http.StatusForbidden)
-		r.Response.WriteJson(map[string]any{"message": "请提供房间 id"})
+		r.Response.WriteJson(map[string]any{"message": "请传房间Base"})
 	}
 
 	// reg := regexp.MustCompile(`^[^-]+-[1-9]\d*$`)
-	reg := regexp.MustCompile(fmt.Sprintf(`^%s-[1-9]\d*$`, name))
+	// reg := regexp.MustCompile(fmt.Sprintf(`^%s-[1-9]\d*$`, name))
 
 	outRooms := make([]OutRoom, 0, len(manager.rooms[RoomTypeMap]))
 
 	for _, item1 := range manager.rooms[RoomTypeMap] {
-		if reg.MatchString(item1.Id) {
+		if item1.MapBase == mapBase {
 			readyNum := 0
 			allNum := 0
 			for _, item2 := range item1.Clients {
@@ -304,7 +302,7 @@ func getRoomsHandler(r *ghttp.Request) {
 	}
 
 	var scenes []byte
-	mapScenes := manager.scenes[name]
+	mapScenes := manager.scenes[mapBase]
 	if mapScenes != nil {
 		scenes, _ = gjson.Marshal(mapScenes)
 	}
