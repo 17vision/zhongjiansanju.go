@@ -12,13 +12,6 @@ import (
 )
 
 // 定义一些数据结构
-type RoomType string
-
-const (
-	RoomTypeLobby RoomType = "lobby" // 大厅
-	RoomTypeMap   RoomType = "map"   // 地图
-)
-
 type RoomStatus int
 
 const (
@@ -29,7 +22,6 @@ const (
 type Room struct {
 	Id         string             `json:"id"`
 	MapBase    string             `json:"mapBase"`
-	Type       RoomType           `json:"type"`
 	Name       string             `json:"name"`
 	Capacity   int                `json:"capacity"`
 	Clients    map[uint64]*Client `json:"clients"`
@@ -40,8 +32,6 @@ type Room struct {
 	SceneIndex int                `json:"sceneIndex"`
 }
 
-var Room_Usernames = []string{"启钥", "建辰", "星启", "寰宇", "承光", "拓先"}
-
 type Gender int
 
 const (
@@ -51,7 +41,7 @@ const (
 )
 
 type UserExtend struct {
-	IsReady bool `json:"isReady"`
+	IsStart bool `json:"isStart"`
 }
 
 type User struct {
@@ -65,8 +55,6 @@ type User struct {
 // 客户端
 type Client struct {
 	User      *User           `json:"user" sm:"用户信息"`
-	RoomType  RoomType        `json:"roomType" sm:"房间类型"`
-	RoomId    string          `json:"roomId" sm:"房间Id"`
 	conn      *websocket.Conn `sm:"websocket.Conn"`
 	send      chan []byte     `sm:"异步写队列"`
 	done      chan struct{}   `sm:"关闭信号"`
@@ -183,12 +171,12 @@ func (c *Client) writePump(ctx context.Context) {
 			c.mu.Lock()
 			if c.conn == nil {
 				c.mu.Unlock()
-				g.Log("test").Async().Debugf(ctx, "[客户端已销毁] -> %s (room %s)", c.User.Nickname, c.RoomId)
+				g.Log("test").Async().Debugf(ctx, "[客户端已销毁] -> %s", c.User.Nickname)
 				return
 			}
 			if err := c.conn.WriteMessage(websocket.TextMessage, msg); err != nil {
 				c.mu.Unlock()
-				g.Log("test").Async().Debugf(ctx, "[写入数据失败] | room:%s (%s) | error: %s", c.RoomId, c.User.Nickname, err.Error())
+				g.Log("test").Async().Debugf(ctx, "[写入数据失败] | %s | error: %s", c.User.Nickname, err.Error())
 				return
 			}
 			c.mu.Unlock()
