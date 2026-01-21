@@ -13,7 +13,7 @@ import (
 var manager *Manager
 
 func init() {
-	manager = NewManager(1)
+	manager = NewManager(2)
 }
 
 func BindRouters(s *ghttp.Server) {
