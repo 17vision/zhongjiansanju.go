@@ -4,10 +4,12 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/gogf/gf/v2/encoding/gjson"
 	"github.com/gogf/gf/v2/frame/g"
 	"github.com/gogf/gf/v2/os/gfile"
+	"github.com/gogf/gf/v2/util/gconv"
 	"github.com/gorilla/websocket"
 )
 
@@ -70,6 +72,8 @@ func (manager *Manager) createClient(ctx context.Context, user *User, conn *webs
 		}
 		delete(manager.clients, user.Id)
 	}
+
+	user.Extend.ConnectTime = time.Now().Unix()
 
 	manager.waitUsers = append(manager.waitUsers, user)
 
@@ -152,29 +156,40 @@ func (manager *Manager) joinRoom(ctx context.Context) {
 	}, user)
 }
 
-func (manager *Manager) start(ctx context.Context, userId uint64) bool {
-	// 先在全局锁内查找并修改房间状态（写操作需锁）
+func (manager *Manager) start(ctx context.Context, uids []string) bool {
 	manager.mu.Lock()
+	defer manager.mu.Unlock()
 
-	client, ok := manager.room.Clients[userId]
-	if !ok && client == nil {
-		manager.mu.Unlock()
-		return false
+	var clients []*Client
+	for _, item := range uids {
+		userId := gconv.Uint64(item)
+
+		client, ok := manager.room.Clients[userId]
+		if ok && client != nil && !client.User.Extend.IsStart {
+			clients = append(clients, client)
+		}
 	}
 
-	if client.User.Extend.IsStart == true {
-		manager.mu.Unlock()
+	if len(clients) == 0 {
 		return false
 	}
-
-	client.User.Extend.IsStart = true
 
 	manager.mu.Unlock()
 
-	manager.broadcastAsync(ctx, manager.room, WSMessage{
-		Type: MsgTypeUserStart,
-		Data: UserEventData{RoomId: manager.room.Id, User: client.User},
-	}, client.User)
+	now := time.Now().Unix()
+	for _, client := range clients {
+		client.User.Extend.IsStart = true
+		client.User.Extend.StartTime = now
+	}
+
+	go func() {
+		for _, client := range clients {
+			manager.unicastAsync(ctx, client, WSMessage{
+				Type: MsgTypeUserStart,
+				Data: client.User.Id,
+			})
+		}
+	}()
 
 	return true
 }
@@ -232,7 +247,11 @@ func (manager *Manager) error(ctx context.Context, client *Client, err error) {
 
 // 广播消息
 func (manager *Manager) broadcastAsync(ctx context.Context, room *Room, msg WSMessage, user *User) {
-	dataStr, _ := gjson.EncodeString(msg)
+	dataStr, err := gjson.EncodeString(msg)
+	if err != nil {
+		g.Log("test").Async().Infof(ctx, "fun broadcastAsync -> json encode error -> message: %v", msg.Data)
+		return
+	}
 	data := []byte(dataStr)
 
 	manager.mu.RLock()
@@ -264,8 +283,13 @@ func (manager *Manager) unicastAsync(ctx context.Context, c *Client, msg WSMessa
 		return
 	}
 
-	dataStr, _ := gjson.EncodeString(msg)
+	dataStr, err := gjson.EncodeString(msg)
+	if err != nil {
+		g.Log("test").Async().Infof(ctx, "fun unicastAsync -> json encode error -> message: %v", msg.Data)
+		return
+	}
 	data := []byte(dataStr)
+
 	select {
 	case c.send <- data:
 	default:

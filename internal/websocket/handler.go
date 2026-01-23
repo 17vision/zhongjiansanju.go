@@ -2,6 +2,9 @@ package websocket
 
 import (
 	"net/http"
+	"sort"
+	"strings"
+	"time"
 	"zjsj/internal/pkg/utils"
 	"zjsj/internal/service"
 
@@ -77,6 +80,8 @@ func websocketHandler(r *ghttp.Request) {
 		return nil
 	})
 
+	user.Extend = &UserExtend{IsStart: false}
+
 	// 初始化客户端信息
 	client := manager.createClient(ctx, &user, conn)
 
@@ -103,27 +108,53 @@ func testHandler(r *ghttp.Request) {
 }
 
 func startHandler(r *ghttp.Request) {
-	userId := r.Get("userId").Uint64()
+	userIds := r.Get("userId").String()
 
-	if userId == 0 {
+	if userIds == "" {
 		r.Response.WriteHeader(http.StatusForbidden)
-		r.Response.WriteJson(map[string]any{"message": "请传用户 id"})
+		r.Response.WriteJson(map[string]any{"message": "请传用户 id,多个用户 id 用 , 连接"})
 		return
 	}
 
-	result := manager.start(r.GetCtx(), userId)
+	uids := strings.Split(userIds, ",")
+
+	result := manager.start(r.GetCtx(), uids)
 
 	r.Response.WriteHeader(http.StatusOK)
 
 	r.Response.WriteJson(map[string]any{"result": result})
 }
 
+type OutUser struct {
+	*User
+	StartDuration   int64 `json:"startDuration"`
+	ConnectDuration int64 `json:"connectDuration"`
+}
+
 func getRoomUsersHandler(r *ghttp.Request) {
 	r.Response.WriteHeader(http.StatusOK)
-	users := make([]*User, 0)
+
+	users := make([]*OutUser, 0, len(manager.clients))
+	now := time.Now().Unix()
+
 	for _, c := range manager.clients {
-		users = append(users, c.User)
+
+		var duration int64
+		if c.User.Extend.StartTime > 0 {
+			duration = now - c.User.Extend.StartTime
+		}
+
+		users = append(users, &OutUser{
+			User:            c.User,
+			StartDuration:   duration,
+			ConnectDuration: now - c.User.Extend.ConnectTime,
+		})
 	}
+
+	sort.Slice(users, func(i, j int) bool {
+		return users[i].ConnectDuration < users[j].ConnectDuration
+	})
+
 	r.Response.WriteJson(map[string]any{"users": users, "waiters": manager.waitUsers})
 }
 

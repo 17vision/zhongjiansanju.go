@@ -41,7 +41,9 @@ const (
 )
 
 type UserExtend struct {
-	IsStart bool `json:"isStart"`
+	IsStart     bool  `json:"isStart"`
+	StartTime   int64 `json:"startTime"`
+	ConnectTime int64 `json:"connectTime"`
 }
 
 type User struct {
