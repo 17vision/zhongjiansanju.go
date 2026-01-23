@@ -80,6 +80,8 @@ func websocketHandler(r *ghttp.Request) {
 		return nil
 	})
 
+	g.Log("test").Async().Infof(ctx, "%s【%d】已连接", user.Nickname, user.Id)
+
 	user.Extend = &UserExtend{IsStart: false}
 
 	// 初始化客户端信息
@@ -108,7 +110,7 @@ func testHandler(r *ghttp.Request) {
 }
 
 func startHandler(r *ghttp.Request) {
-	userIds := r.Get("userId").String()
+	userIds := r.Get("userIds").String()
 
 	if userIds == "" {
 		r.Response.WriteHeader(http.StatusForbidden)
@@ -152,7 +154,7 @@ func getRoomUsersHandler(r *ghttp.Request) {
 	}
 
 	sort.Slice(users, func(i, j int) bool {
-		return users[i].ConnectDuration < users[j].ConnectDuration
+		return users[i].ConnectDuration > users[j].ConnectDuration
 	})
 
 	r.Response.WriteJson(map[string]any{"users": users, "waiters": manager.waitUsers})

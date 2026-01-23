@@ -174,8 +174,6 @@ func (manager *Manager) start(ctx context.Context, uids []string) bool {
 		return false
 	}
 
-	manager.mu.Unlock()
-
 	now := time.Now().Unix()
 	for _, client := range clients {
 		client.User.Extend.IsStart = true
