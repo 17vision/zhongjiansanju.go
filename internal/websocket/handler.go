@@ -1,6 +1,8 @@
 package websocket
 
 import (
+	"context"
+	"net"
 	"net/http"
 	"sort"
 	"strings"
@@ -8,8 +10,11 @@ import (
 	"zjsj/internal/pkg/utils"
 	"zjsj/internal/service"
 
+	"github.com/gogf/gf/v2/encoding/gjson"
 	"github.com/gogf/gf/v2/frame/g"
 	"github.com/gogf/gf/v2/net/ghttp"
+	"github.com/gogf/gf/v2/os/gtime"
+	"github.com/gogf/gf/v2/util/gconv"
 	"github.com/gorilla/websocket"
 )
 
@@ -82,7 +87,7 @@ func websocketHandler(r *ghttp.Request) {
 
 	g.Log("test").Async().Infof(ctx, "%s【%d】已连接", user.Nickname, user.Id)
 
-	user.Extend = &UserExtend{IsStart: false}
+	user.Extend = &UserExtend{IsStart: false, ConnectTime: time.Now().Unix(), ConnectIp: clientIPv4(r)}
 
 	// 初始化客户端信息
 	client := manager.createClient(ctx, &user, conn)
@@ -125,6 +130,66 @@ func startHandler(r *ghttp.Request) {
 	r.Response.WriteHeader(http.StatusOK)
 
 	r.Response.WriteJson(map[string]any{"result": result})
+
+	// 统计
+	startRecord(r.GetCtx(), uids)
+}
+
+func startRecord(ctx context.Context, uids []string) {
+	var clients []*Client
+	for _, item := range uids {
+		userId := gconv.Uint64(item)
+
+		client, ok := manager.room.Clients[userId]
+		if ok && client != nil && client.User.Extend.IsStart {
+			clients = append(clients, client)
+		}
+	}
+
+	if len(clients) == 0 {
+		return
+	}
+
+	for _, item := range clients {
+		var sn string
+		if item.User.Sn != "" {
+			sn = item.User.Sn
+		} else {
+			sn = gconv.String(item.User.Id)
+		}
+
+		data := g.Map{
+			"name":       "hxlc3",
+			"ip":         item.User.Extend.ConnectIp,
+			"connect_at": gtime.NewFromTimeStamp(item.User.Extend.ConnectTime).Format("Y-m-d H:i:s"),
+			"start_at":   gtime.NewFromTimeStamp(item.User.Extend.StartTime).Format("Y-m-d H:i:s"),
+			"sn":         sn,
+		}
+		r, err := g.Client().Post(ctx, "https://game.17vision.com/api/game/start_records", data)
+
+		if err != nil {
+			continue
+		}
+		defer r.Close()
+
+		result := r.ReadAllString()
+		type GameStartRecord struct {
+			ID        uint64 `json:"id"`
+			Name      string `json:"name"`
+			ConnectAt string `json:"connect_at"`
+			StartAt   string `json:"start_at"`
+		}
+
+		var gameStartRecord GameStartRecord
+		err = gjson.Unmarshal([]byte(result), &gameStartRecord)
+		if err == nil {
+			item.User.Extend.RecordId = gameStartRecord.ID
+
+			g.Log("test").Async().Infof(ctx, "%s 开始游戏已统计。统计 id 是 %d", item.User.Nickname, gameStartRecord.ID)
+		} else {
+			g.Log("test").Async().Errorf(ctx, "%s 开始游戏统计失败。错误是 %s", item.User.Nickname, err.Error())
+		}
+	}
 }
 
 type OutUser struct {
@@ -158,6 +223,34 @@ func getRoomUsersHandler(r *ghttp.Request) {
 	})
 
 	r.Response.WriteJson(map[string]any{"users": users, "waiters": manager.waitUsers})
+}
+
+func clientIPv4(r *ghttp.Request) string {
+	ip := r.GetClientIp() // 已经处理过 X-Forwarded-For
+
+	// 去掉端口（极少情况 RemoteAddr 会带端口）
+	if host, _, err := net.SplitHostPort(ip); err == nil {
+		ip = host
+	}
+
+	// 解析地址
+	parsed := net.ParseIP(ip)
+	if parsed == nil {
+		return "" // 非法地址
+	}
+
+	// ::1 -> 127.0.0.1
+	if parsed.IsLoopback() {
+		return "127.0.0.1"
+	}
+
+	// ::ffff:192.168.1.100 -> 192.168.1.100
+	if v4 := parsed.To4(); v4 != nil {
+		return v4.String()
+	}
+
+	// 纯 IPv6 无法映射，按需返回空串或原地址
+	return "" // 或者 return ip，看你业务
 }
 
 // func configHandler(r *ghttp.Request) {

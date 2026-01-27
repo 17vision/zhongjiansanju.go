@@ -9,6 +9,7 @@ import (
 	"github.com/gogf/gf/v2/encoding/gjson"
 	"github.com/gogf/gf/v2/frame/g"
 	"github.com/gogf/gf/v2/os/gfile"
+	"github.com/gogf/gf/v2/os/gtime"
 	"github.com/gogf/gf/v2/util/gconv"
 	"github.com/gorilla/websocket"
 )
@@ -72,8 +73,6 @@ func (manager *Manager) createClient(ctx context.Context, user *User, conn *webs
 		}
 		delete(manager.clients, user.Id)
 	}
-
-	user.Extend.ConnectTime = time.Now().Unix()
 
 	manager.waitUsers = append(manager.waitUsers, user)
 
@@ -220,6 +219,8 @@ func (manager *Manager) removeClient(ctx context.Context, userId uint64) {
 
 	g.Log("test").Async().Infof(ctx, "用户 %s 退出", client.User.Nickname)
 
+	recordId := client.User.Extend.RecordId
+
 	delete(manager.clients, userId)
 
 	for index, user := range manager.waitUsers {
@@ -234,6 +235,20 @@ func (manager *Manager) removeClient(ctx context.Context, userId uint64) {
 	manager.mu.Unlock()
 	manager.broadcastUserLeft(ctx, manager.room, client.User)
 	manager.joinRoom(ctx)
+
+	fmt.Println("recordId", recordId)
+	if recordId != 0 {
+		apiCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		res, err := g.Client().Put(apiCtx, "https://game.17vision.com/api/game/start_records", g.Map{"id": recordId, "end_at": gtime.NewFromTimeStamp(time.Now().Unix()).Format("Y-m-d H:i:s")})
+
+		if err != nil {
+			g.Log("test").Errorf(apiCtx, "上报结束失败 recordId=%d err=%v", recordId, err)
+		} else {
+			g.Log("test").Debugf(apiCtx, "上报结束成功 recordId=%d resp=%s", recordId, res.ReadAllString())
+		}
+	}
 }
 
 func (manager *Manager) error(ctx context.Context, client *Client, err error) {

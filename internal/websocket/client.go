@@ -41,9 +41,11 @@ const (
 )
 
 type UserExtend struct {
-	IsStart     bool  `json:"isStart"`
-	StartTime   int64 `json:"startTime"`
-	ConnectTime int64 `json:"connectTime"`
+	IsStart     bool   `json:"isStart"`
+	StartTime   int64  `json:"startTime"`
+	ConnectTime int64  `json:"connectTime"`
+	ConnectIp   string `json:"connectIp"`
+	RecordId    uint64 `json:"recordId"`
 }
 
 type User struct {
@@ -51,6 +53,7 @@ type User struct {
 	Nickname string      `json:"nickname"`
 	Gender   Gender      `json:"gender"`
 	Avatar   string      `json:"avatar"`
+	Sn       string      `json:"sn"`
 	Extend   *UserExtend `json:"extend"`
 }
 
