@@ -19,6 +19,7 @@ const (
 	MsgTypeStartGame    = "start_game"        // 游戏开始
 	MsgTypeUserIsReady  = "userIsReady"       // 用户准备
 	MsgTypeUserStart    = "userStart"         // 用户开始
+	MsgTypeUserStop     = "userStop"          // 用户结束
 )
 
 // 错误码常量

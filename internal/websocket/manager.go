@@ -169,6 +169,15 @@ func (manager *Manager) start(ctx context.Context, uids []string) bool {
 		}
 	}
 
+	// 客户端
+	// clientsStr, err := gjson.EncodeString(clients)
+	// if err != nil {
+	// 	return false
+	// }
+
+	// fmt.Println("uids", uids)
+	// fmt.Println("clients", clientsStr)
+
 	if len(clients) == 0 {
 		return false
 	}
@@ -183,6 +192,50 @@ func (manager *Manager) start(ctx context.Context, uids []string) bool {
 		for _, client := range clients {
 			manager.unicastAsync(ctx, client, WSMessage{
 				Type: MsgTypeUserStart,
+				Data: client.User.Id,
+			})
+		}
+	}()
+
+	return true
+}
+
+func (manager *Manager) stop(ctx context.Context, uids []string) bool {
+	manager.mu.Lock()
+	defer manager.mu.Unlock()
+
+	var clients []*Client
+	for _, item := range uids {
+		userId := gconv.Uint64(item)
+
+		client, ok := manager.room.Clients[userId]
+		if ok && client != nil && client.User.Extend.IsStart {
+			clients = append(clients, client)
+		}
+	}
+
+	// 客户端
+	// clientsStr, err := gjson.EncodeString(clients)
+	// if err != nil {
+	// 	return false
+	// }
+
+	// fmt.Println("uids", uids)
+	// fmt.Println("clients", clientsStr)
+
+	if len(clients) == 0 {
+		return false
+	}
+
+	for _, client := range clients {
+		client.User.Extend.IsStart = false
+		client.User.Extend.StartTime = 0
+	}
+
+	go func() {
+		for _, client := range clients {
+			manager.unicastAsync(ctx, client, WSMessage{
+				Type: MsgTypeUserStop,
 				Data: client.User.Id,
 			})
 		}

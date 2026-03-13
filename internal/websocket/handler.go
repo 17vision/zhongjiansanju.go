@@ -21,7 +21,7 @@ import (
 var manager *Manager
 
 func init() {
-	manager = NewManager(2)
+	manager = NewManager(100)
 }
 
 func BindRouters(s *ghttp.Server) {
@@ -36,6 +36,8 @@ func BindRouters(s *ghttp.Server) {
 		group.GET("/room/users", getRoomUsersHandler)
 
 		group.POST("/start", startHandler)
+
+		group.POST("/stop", stopHandler)
 
 		// group.POST("/config", configHandler)
 
@@ -192,6 +194,27 @@ func startRecord(ctx context.Context, uids []string) {
 	}
 }
 
+func stopHandler(r *ghttp.Request) {
+	userIds := r.Get("userIds").String()
+
+	if userIds == "" {
+		r.Response.WriteHeader(http.StatusForbidden)
+		r.Response.WriteJson(map[string]any{"message": "请传用户 id,多个用户 id 用 , 连接"})
+		return
+	}
+
+	uids := strings.Split(userIds, ",")
+
+	result := manager.stop(r.GetCtx(), uids)
+
+	r.Response.WriteHeader(http.StatusOK)
+
+	r.Response.WriteJson(map[string]any{"result": result})
+
+	// 统计
+	// startRecord(r.GetCtx(), uids)
+}
+
 type OutUser struct {
 	*User
 	StartDuration   int64 `json:"startDuration"`
@@ -219,7 +242,18 @@ func getRoomUsersHandler(r *ghttp.Request) {
 	}
 
 	sort.Slice(users, func(i, j int) bool {
-		return users[i].ConnectDuration > users[j].ConnectDuration
+		// 第一优先级：IsStart 降序（true > false）
+		if users[i].Extend.IsStart != users[j].Extend.IsStart {
+			return users[i].Extend.IsStart
+		}
+
+		// 第二优先级：ConnectDuration 降序
+		if users[i].ConnectDuration != users[j].ConnectDuration {
+			return users[i].ConnectDuration > users[j].ConnectDuration
+		}
+
+		// 第三优先级：Id 升序
+		return int64(users[i].Id) < int64(users[j].Id)
 	})
 
 	r.Response.WriteJson(map[string]any{"users": users, "waiters": manager.waitUsers})
