@@ -506,6 +506,61 @@ func (manager *Manager) start(ctx context.Context, roomId string) bool {
 	return true
 }
 
+func (manager *Manager) stop(ctx context.Context, roomId string) bool {
+	// 先在全局锁内查找并修改房间状态（写操作需锁）
+	manager.mu.Lock()
+
+	var room *Room
+	for _, list := range manager.rooms {
+		for _, r := range list {
+			if r.Id == roomId {
+				room = r
+				break
+			}
+		}
+
+		if room != nil {
+			break
+		}
+	}
+
+	if room == nil {
+		manager.mu.Unlock()
+		g.Log("test").Async().Infof(ctx, "结束游戏失败，房间不存在: %s", roomId)
+		return false
+	}
+
+	// 修改房间状态并记录时间（在锁内完成）
+	room.Status = RoomStatusStopped
+	room.StartTime = 0
+
+	// 🔴 关键：拷贝 clients 引用，避免解锁后遍历原 map
+	clients := make([]*Client, 0, len(room.Clients))
+	for _, c := range room.Clients {
+		clients = append(clients, c)
+	}
+
+	manager.mu.Unlock()
+
+	g.Log("test").Async().Infof(ctx, "结束游戏, 房间 id = %s, 新状态 = %v", roomId, RoomStatusStopped)
+
+	manager.broadcastAsync(ctx, room, WSMessage{
+		Type: MsgTypeStopGame,
+		Data: nil,
+	}, nil)
+
+	// 异步断开用户连接，不阻塞当前调用
+	go func(clients []*Client) {
+		time.Sleep(200 * time.Millisecond)
+		for _, c := range clients {
+			c.conn.Close()
+		}
+		g.Log("test").Async().Infof(ctx, "已关闭房间 %s 的所有连接", roomId)
+	}(clients)
+
+	return true
+}
+
 // 推送房间用户
 func (manager *Manager) pushRoomUserList(ctx context.Context, room *Room, userId uint64) {
 	users := make([]*User, 0, len(room.Clients))

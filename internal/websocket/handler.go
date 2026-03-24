@@ -39,6 +39,8 @@ func BindRouters(s *ghttp.Server) {
 		group.POST("/scenes", storeScenesHandler)
 
 		group.GET("/scenes", getScenesHandler)
+
+		group.POST("/stop", stopHandler)
 	})
 
 	s.BindHandler("/ws/connect", websocketHandler)
@@ -152,6 +154,22 @@ func startHandler(r *ghttp.Request) {
 	}
 
 	result := manager.start(r.GetCtx(), roomId)
+
+	r.Response.WriteHeader(http.StatusOK)
+
+	r.Response.WriteJson(map[string]any{"result": result})
+}
+
+func stopHandler(r *ghttp.Request) {
+	roomId := r.Get("roomId").String()
+
+	if roomId == "" {
+		r.Response.WriteHeader(http.StatusForbidden)
+		r.Response.WriteJson(map[string]any{"message": "请传房间 id"})
+		return
+	}
+
+	result := manager.stop(r.GetCtx(), roomId)
 
 	r.Response.WriteHeader(http.StatusOK)
 

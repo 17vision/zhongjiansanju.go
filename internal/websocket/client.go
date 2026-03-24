@@ -24,6 +24,7 @@ type RoomStatus int
 const (
 	RoomStatusWating  RoomStatus = 0
 	RoomStatusPlaying RoomStatus = 1
+	RoomStatusStopped RoomStatus = 2
 )
 
 type Room struct {

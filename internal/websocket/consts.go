@@ -17,6 +17,7 @@ const (
 	MsgTypeKicked       = "kicked"            // 被踢下线通知
 	MsgTypeKickedRoom   = "kicked_romm"       // 踢出房间通知
 	MsgTypeStartGame    = "start_game"        // 游戏开始
+	MsgTypeStopGame     = "stop_game"         // 游戏结束
 	MsgTypeUserIsReady  = "userIsReady"       //用户开始
 )
 
