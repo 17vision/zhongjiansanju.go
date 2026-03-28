@@ -187,7 +187,7 @@ func configHandler(r *ghttp.Request) {
 	}
 
 	// 1. 绝对路径 & 2. 确保目录存在
-	path := gfile.Join(gfile.Pwd(), "storage", "posJson.json")
+	path := gfile.Join(gfile.Pwd(), "storage", "temp-posJson.json")
 	if err := gfile.Mkdir(gfile.Dir(path)); err != nil {
 		r.Response.WriteHeader(http.StatusInternalServerError)
 		r.Response.WriteJson(map[string]any{"message": "创建目录失败"})
