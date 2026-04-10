@@ -201,7 +201,7 @@ func configHandler(r *ghttp.Request) {
 	}
 	_ = gfile.Rename(path+".tmp", path)
 
-	manager.posJson = json
+	// manager.posJson = json
 
 	r.Response.WriteHeader(http.StatusOK)
 
