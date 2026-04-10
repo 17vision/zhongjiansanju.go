@@ -160,8 +160,13 @@ func startRecord(ctx context.Context, uids []string) {
 			sn = gconv.String(item.User.Id)
 		}
 
+		name := manager.gameConfg.Id
+		if name == "" {
+			name = "hxlc"
+		}
+
 		data := g.Map{
-			"name":       "hxlc3",
+			"name":       name,
 			"ip":         item.User.Extend.ConnectIp,
 			"connect_at": gtime.NewFromTimeStamp(item.User.Extend.ConnectTime).Format("Y-m-d H:i:s"),
 			"start_at":   gtime.NewFromTimeStamp(item.User.Extend.StartTime).Format("Y-m-d H:i:s"),
@@ -175,6 +180,9 @@ func startRecord(ctx context.Context, uids []string) {
 		defer r.Close()
 
 		result := r.ReadAllString()
+
+		g.Log("test").Async().Infof(ctx, "提交统计返回数据:%s", result)
+
 		type GameStartRecord struct {
 			ID        uint64 `json:"id"`
 			Name      string `json:"name"`

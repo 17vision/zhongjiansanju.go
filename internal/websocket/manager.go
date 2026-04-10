@@ -26,21 +26,41 @@ type Manager struct {
 	room      *Room
 	userLocks sync.Map
 	lastId    uint64
+	gameConfg *GameConfig
 }
 
 var mapSeq int64
 var lobbySeq int64
 
+type GameConfig struct {
+	Name string `json:"name"`
+	Id   string `json:"id"`
+}
+
 func NewManager(capacity int) *Manager {
-	files, err := gfile.ScanDir(gfile.Join(gfile.Pwd(), "storage/config"), "*.json", false) // false 不递归
-	if err == nil {
-		for _, f := range files {
-			sceneName := gfile.Name(f)
-			content := gfile.GetContents(f)
-			fmt.Println(sceneName)
-			fmt.Println(content)
+	gamePath := gfile.Join(gfile.Pwd(), "storage/config", "game.json")
+	gameJson := gfile.GetContents(gamePath)
+
+	var gameConfig *GameConfig
+	if gameJson != "" {
+		err := gjson.DecodeTo(gameJson, &gameConfig)
+		if err != nil {
+			g.Log().Errorf(context.Background(), "解析游戏配置失败: %v", err)
 		}
+		g.Log("test").Async().Infof(context.Background(), "游戏配置: %s", gameJson)
+	} else {
+		g.Log("test").Async().Errorf(context.Background(), "读取游戏配置失败，路径: %s", gamePath)
 	}
+
+	// files, err := gfile.ScanDir(gfile.Join(gfile.Pwd(), "storage/config"), "*.json", false) // false 不递归
+	// if err == nil {
+	// 	for _, f := range files {
+	// 		sceneName := gfile.Name(f)
+	// 		content := gfile.GetContents(f)
+	// 		fmt.Println(sceneName)
+	// 		fmt.Println(content)
+	// 	}
+	// }
 
 	room := &Room{Id: "room", Name: "我的房间", Capacity: capacity, Clients: make(map[uint64]*Client), SceneIndex: -1}
 
@@ -49,6 +69,7 @@ func NewManager(capacity int) *Manager {
 		room:      room,
 		waitUsers: make([]*User, 0),
 		lastId:    0,
+		gameConfg: gameConfig,
 	}
 }
 
