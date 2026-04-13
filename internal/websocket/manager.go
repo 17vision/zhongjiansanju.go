@@ -22,9 +22,9 @@ type Scene struct {
 }
 
 type MapConfig struct {
-	name     string
-	mapBase  string
-	capacity int
+	Name     string `json:"name"`
+	MapBase  string `json:"mapBase"`
+	Capacity int    `json:"capacity"`
 }
 
 type Manager struct {
@@ -284,8 +284,8 @@ func (manager *Manager) createOrJoinMap(client *Client, mapBase string) *Room {
 
 	mapCapacity := manager.mapCapacity
 	mapConfig := manager.mapConfigs[mapBase]
-	if mapConfig != nil {
-		mapCapacity = mapConfig.capacity
+	if mapConfig != nil && mapConfig.Capacity > 0 {
+		mapCapacity = mapConfig.Capacity
 	}
 
 	for _, room := range manager.rooms[RoomTypeMap] {
@@ -410,8 +410,8 @@ func (manager *Manager) JoinRoom(ctx context.Context, userId uint64, roomID stri
 	} else {
 		max = manager.mapCapacity
 		mapConfig := manager.mapConfigs[newRoom.MapBase]
-		if mapConfig != nil {
-			max = mapConfig.capacity
+		if mapConfig != nil && mapConfig.Capacity > 0 {
+			max = mapConfig.Capacity
 		}
 	}
 
