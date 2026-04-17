@@ -58,6 +58,7 @@ const (
 // 用户信息
 type User struct {
 	Type     UserType    `json:"type"`
+	Port     int         `json:"port"`
 	Id       uint64      `json:"id"`
 	Nickname string      `json:"nickname"`
 	Gender   Gender      `json:"gender"`

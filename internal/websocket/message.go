@@ -123,7 +123,7 @@ func CreateOrJoinMapHandler(ctx context.Context, manager *Manager, client *Clien
 	// 发给自己，加入了房间
 	manager.unicastAsync(ctx, client, WSMessage{
 		Type: MsgTypeJoined,
-		Data: UserEventData{RoomId: room.Id, Ip: manager.gameConfig.Ip, Port: int(room.GameServerClient.User.Id)},
+		Data: UserEventData{RoomId: room.Id, Ip: manager.gameConfig.Ip, Port: int(room.GameServerClient.User.Port)},
 	})
 
 	// 把房间里的人推送给自己

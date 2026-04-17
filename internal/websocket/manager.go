@@ -394,6 +394,14 @@ func (manager *Manager) start(ctx context.Context, roomId string) bool {
 		Data: nil,
 	}, nil)
 
+	// 通知游戏服务器开始游戏
+	if room.GameServerClient == nil {
+		manager.unicastAsync(ctx, room.GameServerClient, WSMessage{
+			Type: MsgTypeStartGame,
+			Data: nil,
+		})
+	}
+
 	return true
 }
 
@@ -439,6 +447,13 @@ func (manager *Manager) stop(ctx context.Context, roomId string) bool {
 		Type: MsgTypeStopGame,
 		Data: nil,
 	}, nil)
+
+	if room.GameServerClient == nil {
+		manager.unicastAsync(ctx, room.GameServerClient, WSMessage{
+			Type: MsgTypeStopGame,
+			Data: nil,
+		})
+	}
 
 	// 异步断开用户连接，不阻塞当前调用
 	go func(clients []*Client) {
@@ -526,8 +541,10 @@ func (manager *Manager) removeClient(ctx context.Context, userId uint64) {
 		manager.broadcastUserLeft(ctx, room, client.User)
 
 		if len(room.Clients) == 0 {
-			room.GameServerClient.User.Extend.IsReady = false
-			room.GameServerClient = nil
+			if room.GameServerClient != nil {
+				room.GameServerClient.User.Extend.IsReady = false
+				room.GameServerClient = nil
+			}
 
 			manager.destroyRoom()
 		}

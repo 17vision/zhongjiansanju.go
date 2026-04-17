@@ -208,7 +208,7 @@ func getRoomsHandler(r *ghttp.Request) {
 	}
 
 	r.Response.WriteHeader(http.StatusOK)
-	r.Response.WriteJson(map[string]any{"rooms": outRooms})
+	r.Response.WriteJson(outRooms)
 }
 
 func testHandler(r *ghttp.Request) {
