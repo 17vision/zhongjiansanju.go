@@ -28,20 +28,16 @@ const (
 )
 
 type Room struct {
-	Id         string             `json:"id"`
-	MapBase    string             `json:"mapBase"`
-	Type       RoomType           `json:"type"`
-	Name       string             `json:"name"`
-	Capacity   int                `json:"capacity"`
-	Clients    map[uint64]*Client `json:"clients"`
-	Usernames  []string           `json:"usernames"`
-	Status     RoomStatus         `json:"roomStatus"`
-	StartTime  int64              `json:"startTime"`
-	Scenes     []*Scene           `json:"scenes"`
-	SceneIndex int                `json:"sceneIndex"`
+	Id               string             `json:"id"`
+	MapBase          string             `json:"mapBase"`
+	Type             RoomType           `json:"type"`
+	Name             string             `json:"name"`
+	Capacity         int                `json:"capacity"`
+	Clients          map[uint64]*Client `json:"clients"`
+	GameServerClient *Client            `json:"gameServerClient"`
+	Status           RoomStatus         `json:"roomStatus"`
+	StartTime        int64              `json:"startTime"`
 }
-
-var Room_Usernames = []string{"启钥", "建辰", "星启", "寰宇", "承光", "拓先"}
 
 type Gender int
 
@@ -51,16 +47,33 @@ const (
 	GenderFemale  Gender = 2
 )
 
-type UserExtend struct {
-	IsReady bool `json:"isReady"`
-}
+// 用户类型
+type UserType int
 
+const (
+	TypeUser       UserType = 1
+	TypeGameServer UserType = 2
+)
+
+// 用户信息
 type User struct {
+	Type     UserType    `json:"type"`
 	Id       uint64      `json:"id"`
 	Nickname string      `json:"nickname"`
 	Gender   Gender      `json:"gender"`
 	Avatar   string      `json:"avatar"`
 	Extend   *UserExtend `json:"extend"`
+}
+
+type UserExtend struct {
+	IsReady  bool `json:"isReady"`
+	IsServer bool `json:"isServer"` // 给服务机器人的，看是不是再服务中
+}
+
+// game 服务器(特殊用户)
+type GameServer struct {
+	User
+	RoomId string `json:"roomId"`
 }
 
 // 客户端

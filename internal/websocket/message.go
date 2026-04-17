@@ -4,8 +4,8 @@ import (
 	"context"
 
 	"github.com/gogf/gf/v2/encoding/gjson"
+	"github.com/gogf/gf/v2/errors/gerror"
 	"github.com/gogf/gf/v2/frame/g"
-	"github.com/gogf/gf/v2/util/gconv"
 )
 
 // WSMessage WebSocket消息通用结构体
@@ -37,10 +37,11 @@ type RoomUsersData struct {
 
 // UserEventData 用户进出房间事件消息体
 type UserEventData struct {
-	RoomId    string `json:"roomId"`    // 房间ID
-	User      *User  `json:"user"`      // 用户信息
-	PosConfig string `json:"posConfig"` //位置配置信息
-	Scenes    string `json:"scenes"`    // 场景配置
+	RoomId  string `json:"roomId"`
+	Message string `json:"message"`
+	Ip      string `json:"ip"`
+	Port    int    `json:"port"`
+	UserId  uint64 `json:"userId"`
 }
 
 type Envelope struct {
@@ -80,26 +81,49 @@ func ChatHandler(ctx context.Context, manager *Manager, client *Client, message 
 func CreateOrJoinMapHandler(ctx context.Context, manager *Manager, client *Client, message interface{}) error {
 	req := message.(*CreateOrJoinMapReq)
 
+	// 有房间或有 gameServer 才能进入，否则切换失败
+	var room *Room
+	room = manager.getMapRoom(req.Map)
+	if room == nil {
+		// 创建这个地图之前，先看看是否有闲置机器人
+		if len(manager.gameServerClients) == 0 {
+			manager.unicastAsync(ctx, client, WSMessage{
+				Type: MsgTypeError,
+				Data: UserEventData{Message: "创建或进入地图失败,缺少游戏服务器", UserId: client.User.Id},
+			})
+			return gerror.New("创建或进入地图失败，缺少游戏服务器")
+		}
+
+		var selectClient *Client
+		for _, tempClient := range manager.gameServerClients {
+			if tempClient.User.Extend.IsServer == false {
+				selectClient = tempClient
+				break
+			}
+		}
+
+		if selectClient == nil {
+			manager.unicastAsync(ctx, client, WSMessage{
+				Type: MsgTypeError,
+				Data: UserEventData{Message: "创建或进入地图失败,缺少游戏服务器", UserId: client.User.Id},
+			})
+			return gerror.New("创建或进入地图失败，缺少游戏服务器")
+		}
+	}
+	// 先退出以前的房子
+
 	// 先退出以前的房子
 	manager.leftLobbyOrMap(ctx, client)
 
 	// 再创建或进房子
-	room := manager.createOrJoinMap(client, req.Map)
+	room = manager.createOrJoinMap(client, req.Map)
 
 	g.Log("test").Async().Infof(ctx, "用户 %s 创建或进入地图 %s", client.User.Nickname, room.Id)
-
-	var scenes []byte
-	if room.MapBase != "" {
-		roomScenes := manager.scenes[room.MapBase]
-		if roomScenes != nil {
-			scenes, _ = gjson.Marshal(roomScenes)
-		}
-	}
 
 	// 发给自己，加入了房间
 	manager.unicastAsync(ctx, client, WSMessage{
 		Type: MsgTypeJoined,
-		Data: UserEventData{RoomId: room.Id, User: client.User, Scenes: string(scenes), PosConfig: manager.posJson},
+		Data: UserEventData{RoomId: room.Id, Ip: manager.gameConfig.Ip, Port: int(room.GameServerClient.User.Id)},
 	})
 
 	// 把房间里的人推送给自己
@@ -128,8 +152,7 @@ func ActionHandler(ctx context.Context, manager *Manager, client *Client, messag
 	g.Log("test").Async().Infof(ctx, "%s 发起 Action = %s", client.User.Nickname, req.Action)
 
 	if req.Action == "changeScene" {
-		result := manager.changeScene(ctx, client.RoomId, gconv.Int(req.Data))
-		g.Log("test").Async().Infof(ctx, "用户 %d changeScene %d %v ", client.User.Id, gconv.Int(req.Data), result)
+		// g.Log("test").Async().Infof(ctx, "用户 %d changeScene %d %v ", client.User.Id, gconv.Int(req.Data), result)
 	}
 
 	return nil
