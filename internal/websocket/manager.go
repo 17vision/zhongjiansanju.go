@@ -276,8 +276,6 @@ func (manager *Manager) createOrJoinMap(client *Client, mapBase string) *Room {
 	client.RoomId = room.Id
 	room.Clients[client.User.Id] = client
 	manager.rooms[RoomTypeMap] = append(manager.rooms[RoomTypeMap], room)
-
-	fmt.Println("加入房间列表xxx")
 	return room
 }
 
@@ -401,6 +399,9 @@ func (manager *Manager) start(ctx context.Context, roomId string) bool {
 			Type: MsgTypeStartGame,
 			Data: nil,
 		})
+		g.Log("test").Async().Infof(ctx, "开始游戏 给游戏客户端发消息。用户 id = %d, 端口 = %d, ", room.GameServerClient.User.Id, room.GameServerClient.User.Port)
+	} else {
+		g.Log("test").Async().Error(ctx, "开始游戏失败, 游戏客户端不存在")
 	}
 
 	return true
