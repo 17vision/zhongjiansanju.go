@@ -81,6 +81,8 @@ func ChatHandler(ctx context.Context, manager *Manager, client *Client, message 
 func CreateOrJoinMapHandler(ctx context.Context, manager *Manager, client *Client, message interface{}) error {
 	req := message.(*CreateOrJoinMapReq)
 
+	gerror.New("进入房间---------------------")
+
 	// 有房间或有 gameServer 才能进入，否则切换失败
 	var room *Room
 	room = manager.getMapRoom(req.Map)
@@ -105,9 +107,9 @@ func CreateOrJoinMapHandler(ctx context.Context, manager *Manager, client *Clien
 		if selectClient == nil {
 			manager.unicastAsync(ctx, client, WSMessage{
 				Type: MsgTypeError,
-				Data: UserEventData{Message: "创建或进入地图失败,缺少游戏服务器", UserId: client.User.Id},
+				Data: UserEventData{Message: "创建或进入地图失败,游戏服务器被占用", UserId: client.User.Id},
 			})
-			return gerror.New("创建或进入地图失败，缺少游戏服务器")
+			return gerror.New("创建或进入地图失败，游戏服务器被占用")
 		}
 	}
 	// 先退出以前的房子

@@ -54,6 +54,7 @@ func NewManager(lobbyCap, mapCap int) *Manager {
 		rooms:             make(map[RoomType][]*Room),
 		clients:           make(map[uint64]*Client),
 		gameServerClients: make(map[uint64]*Client),
+		userLocks:         sync.Map{},
 		gameConfig:        gameConfig,
 	}
 }
@@ -395,7 +396,7 @@ func (manager *Manager) start(ctx context.Context, roomId string) bool {
 	}, nil)
 
 	// 通知游戏服务器开始游戏
-	if room.GameServerClient == nil {
+	if room.GameServerClient != nil {
 		manager.unicastAsync(ctx, room.GameServerClient, WSMessage{
 			Type: MsgTypeStartGame,
 			Data: nil,
@@ -448,7 +449,7 @@ func (manager *Manager) stop(ctx context.Context, roomId string) bool {
 		Data: nil,
 	}, nil)
 
-	if room.GameServerClient == nil {
+	if room.GameServerClient != nil {
 		manager.unicastAsync(ctx, room.GameServerClient, WSMessage{
 			Type: MsgTypeStopGame,
 			Data: nil,
@@ -489,7 +490,7 @@ func (manager *Manager) pushRoomUserList(ctx context.Context, room *Room, userId
 func (manager *Manager) broadcastUserJoined(ctx context.Context, room *Room, user *User) {
 	manager.broadcastAsync(ctx, room, WSMessage{
 		Type: MsgTypeUserJoined,
-		Data: UserEventData{RoomId: room.Id, UserId: user.Id},
+		Data: UserEventData{RoomId: room.Id, UserId: user.Id, Ip: manager.gameConfig.Ip},
 	}, user)
 }
 
@@ -514,11 +515,11 @@ func (manager *Manager) removeClient(ctx context.Context, userId uint64) {
 
 	delete(manager.clients, userId)
 
-	// 如果是游戏服务器
+	// 如果是游戏服务器挂了，就删除游戏服务器
 	if client.User.Type == TypeGameServer {
 		// 删除引用
 		delete(manager.gameServerClients, userId)
-		// 停止游戏
+		g.Log("test").Async().Infof(ctx, "游戏服务器退出，删除引用")
 	}
 
 	var room *Room
@@ -541,9 +542,13 @@ func (manager *Manager) removeClient(ctx context.Context, userId uint64) {
 		manager.broadcastUserLeft(ctx, room, client.User)
 
 		if len(room.Clients) == 0 {
+			g.Log("test").Async().Infof(ctx, "房间无人，销毁房间 %s ", room.Id)
 			if room.GameServerClient != nil {
-				room.GameServerClient.User.Extend.IsReady = false
+				room.GameServerClient.User.Extend.IsServer = false
 				room.GameServerClient = nil
+
+				g.Log("test").Async().Infof(ctx, "销毁房间，复位数据:")
+				g.Log("test").Async().Infof(ctx, gjson.MustEncodeString(manager.gameServerClients))
 			}
 
 			manager.destroyRoom()
@@ -577,6 +582,7 @@ func (manager *Manager) error(ctx context.Context, client *Client, err error) {
 // 广播消息
 func (manager *Manager) broadcastAsync(ctx context.Context, room *Room, msg WSMessage, user *User) {
 	dataStr, _ := gjson.EncodeString(msg)
+
 	data := []byte(dataStr)
 
 	manager.mu.RLock()
@@ -609,6 +615,7 @@ func (manager *Manager) unicastAsync(ctx context.Context, c *Client, msg WSMessa
 	}
 
 	dataStr, _ := gjson.EncodeString(msg)
+
 	data := []byte(dataStr)
 	select {
 	case c.send <- data:

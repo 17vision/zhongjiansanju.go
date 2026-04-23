@@ -92,7 +92,7 @@ type Client struct {
 
 const (
 	maxMessageSize = 512 * 1024
-	pingPeriod     = 54 * time.Second
+	pingPeriod     = 10 * time.Second
 	writeWait      = 10 * time.Second
 )
 

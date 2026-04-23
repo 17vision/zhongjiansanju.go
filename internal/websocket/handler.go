@@ -6,6 +6,7 @@ import (
 	"zjsj/internal/pkg/utils"
 	"zjsj/internal/service"
 
+	"github.com/gogf/gf/v2/encoding/gjson"
 	"github.com/gogf/gf/v2/frame/g"
 	"github.com/gogf/gf/v2/net/ghttp"
 	"github.com/gorilla/websocket"
@@ -73,6 +74,8 @@ func websocketHandler(r *ghttp.Request) {
 		IsServer: false,
 	}
 
+	g.Log().Info(ctx, "用户进入：", gjson.MustEncodeString(user))
+
 	// 断开处理
 	conn.SetCloseHandler(func(code int, text string) error {
 		g.Log().Info(ctx, "WebSocket closed:", code, text)
@@ -107,6 +110,11 @@ func websocketHandler(r *ghttp.Request) {
 
 		// 广播消息，有人进来了
 		manager.broadcastUserJoined(ctx, room, &user)
+	} else {
+		manager.unicastAsync(ctx, client, WSMessage{
+			Type: MsgTypeUserJoined,
+			Data: UserEventData{UserId: user.Id, Ip: manager.gameConfig.Ip},
+		})
 	}
 }
 
