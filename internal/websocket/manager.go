@@ -521,6 +521,8 @@ func (manager *Manager) removeClient(ctx context.Context, userId uint64) {
 
 	// 如果是游戏服务器挂了，就删除游戏服务器
 	if client.User.Type == TypeGameServer {
+		client.User.Extend.IsServer = false
+		client.RoomId = ""
 		// 删除引用
 		delete(manager.gameServerClients, userId)
 		g.Log("test").Async().Infof(ctx, "游戏服务器退出，删除引用")
