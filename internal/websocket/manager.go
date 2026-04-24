@@ -97,7 +97,7 @@ func (manager *Manager) createClient(ctx context.Context, user *User, conn *webs
 
 	// 现在在不持全局锁的情况下通知旧连接并关闭资源
 	if hadOld && oldClient != nil {
-		g.Log("test").Async().Infof(ctx, "%s 被踢下线通知", oldClient.User.Nickname)
+		g.Log("test").Async().Infof(ctx, "%d 被踢下线通知", oldClient.User.Id)
 
 		// 先发通知
 		manager.unicastAsync(ctx, oldClient, WSMessage{
@@ -133,7 +133,7 @@ func (manager *Manager) kickClient(ctx context.Context, user *User, reason strin
 		return
 	}
 
-	g.Log("test").Async().Infof(ctx, "%s 被踢下线通知", client.User.Nickname)
+	g.Log("test").Async().Infof(ctx, "%d 被踢下线通知", client.User.Id)
 
 	// 先发通知，再踢出去
 	manager.unicastAsync(ctx, client, WSMessage{
@@ -154,7 +154,7 @@ func (manager *Manager) KickRoom(ctx context.Context, room *Room, user *User, re
 		return
 	}
 
-	g.Log("test").Async().Infof(ctx, "%s 被踢出房间通知", client.User.Nickname)
+	g.Log("test").Async().Infof(ctx, "%d 被踢出房间通知", client.User.Id)
 
 	// 先发通知
 	manager.unicastAsync(ctx, client, WSMessage{
@@ -273,6 +273,9 @@ func (manager *Manager) createOrJoinMap(client *Client, mapBase string) *Room {
 	room := &Room{Id: rid, MapBase: mapBase, Type: RoomTypeMap, Name: "地图", Capacity: mapCapacity, Clients: make(map[uint64]*Client), Status: RoomStatusWating}
 	room.GameServerClient = selectClient
 
+	// 把绑定的房间 id 也带上
+	selectClient.RoomId = room.Id
+
 	client.RoomId = room.Id
 	room.Clients[client.User.Id] = client
 	manager.rooms[RoomTypeMap] = append(manager.rooms[RoomTypeMap], room)
@@ -301,7 +304,7 @@ func (manager *Manager) leftLobbyOrMap(ctx context.Context, client *Client) {
 			manager.destroyRoom()
 		}
 	} else {
-		g.Log("test").Async().Infof(ctx, "用户 %s 离开房间失败，找不到房间 %s", client.User.Nickname, client.RoomId)
+		g.Log("test").Async().Infof(ctx, "用户 %d 离开房间失败，找不到房间 %s", client.User.Id, client.RoomId)
 	}
 }
 
@@ -512,7 +515,7 @@ func (manager *Manager) removeClient(ctx context.Context, userId uint64) {
 		return
 	}
 
-	g.Log("test").Async().Infof(ctx, "用户 %s 退出", client.User.Nickname)
+	g.Log("test").Async().Infof(ctx, "用户 %d 退出", client.User.Id)
 
 	delete(manager.clients, userId)
 
@@ -546,6 +549,7 @@ func (manager *Manager) removeClient(ctx context.Context, userId uint64) {
 			g.Log("test").Async().Infof(ctx, "房间无人，销毁房间 %s ", room.Id)
 			if room.GameServerClient != nil {
 				room.GameServerClient.User.Extend.IsServer = false
+				room.GameServerClient.RoomId = ""
 				room.GameServerClient = nil
 
 				g.Log("test").Async().Infof(ctx, "销毁房间，复位数据:")
@@ -612,6 +616,7 @@ func (manager *Manager) broadcastAsync(ctx context.Context, room *Room, msg WSMe
 // 单发消息
 func (manager *Manager) unicastAsync(ctx context.Context, c *Client, msg WSMessage) {
 	if c == nil || c.IsClosed() {
+		g.Log("test").Async().Errorf(ctx, "发消息失败，客户端是 nil: %v, 客户端 closed: %v", c == nil, c.IsClosed())
 		return
 	}
 

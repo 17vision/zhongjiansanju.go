@@ -198,12 +198,12 @@ func (c *Client) writePump(ctx context.Context) {
 			c.mu.Lock()
 			if c.conn == nil {
 				c.mu.Unlock()
-				g.Log("test").Async().Debugf(ctx, "[客户端已销毁] -> %s (room %s)", c.User.Nickname, c.RoomId)
+				g.Log("test").Async().Debugf(ctx, "[客户端已销毁] -> %d (room %s)", c.User.Id, c.RoomId)
 				return
 			}
 			if err := c.conn.WriteMessage(websocket.TextMessage, msg); err != nil {
 				c.mu.Unlock()
-				g.Log("test").Async().Debugf(ctx, "[写入数据失败] | room:%s (%s) | error: %s", c.RoomId, c.User.Nickname, err.Error())
+				g.Log("test").Async().Debugf(ctx, "[写入数据失败] | room:%s (%d) | error: %s", c.RoomId, c.User.Id, err.Error())
 				return
 			}
 			c.mu.Unlock()

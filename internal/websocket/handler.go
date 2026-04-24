@@ -215,8 +215,30 @@ func getRoomsHandler(r *ghttp.Request) {
 		}
 	}
 
+	type GameServerClient struct {
+		Id       uint64 `json:"id"`
+		Port     int    `json:"port"`
+		Ip       string `json:"ip"`
+		IsServer bool   `json:"isServer"`
+		RoomId   string `json:"roomId"`
+	}
+
+	outGameServerClient := make([]GameServerClient, 0, len(manager.gameServerClients))
+	for _, item := range manager.gameServerClients {
+		outGameServerClient = append(outGameServerClient, GameServerClient{
+			Id:       item.User.Id,
+			Port:     item.User.Port,
+			Ip:       manager.gameConfig.Ip,
+			IsServer: item.User.Extend.IsServer,
+			RoomId:   item.RoomId,
+		})
+	}
+
 	r.Response.WriteHeader(http.StatusOK)
-	r.Response.WriteJson(outRooms)
+	r.Response.WriteJson(map[string]any{
+		"rooms":   outRooms,
+		"servers": outGameServerClient,
+	})
 }
 
 func testHandler(r *ghttp.Request) {

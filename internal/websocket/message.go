@@ -120,7 +120,7 @@ func CreateOrJoinMapHandler(ctx context.Context, manager *Manager, client *Clien
 	// 再创建或进房子
 	room = manager.createOrJoinMap(client, req.Map)
 
-	g.Log("test").Async().Infof(ctx, "用户 %s 创建或进入地图 %s", client.User.Nickname, room.Id)
+	g.Log("test").Async().Infof(ctx, "用户 %d 创建或进入地图 %s", client.User.Id, room.Id)
 
 	// 发给自己，加入了房间
 	manager.unicastAsync(ctx, client, WSMessage{
@@ -151,7 +151,7 @@ func JoinRoomHandler(ctx context.Context, manager *Manager, client *Client, mess
 func ActionHandler(ctx context.Context, manager *Manager, client *Client, message interface{}) error {
 	req := message.(*ActionReq)
 
-	g.Log("test").Async().Infof(ctx, "%s 发起 Action = %s", client.User.Nickname, req.Action)
+	g.Log("test").Async().Infof(ctx, "%d 发起 Action = %s", client.User.Id, req.Action)
 
 	if req.Action == "changeScene" {
 		// g.Log("test").Async().Infof(ctx, "用户 %d changeScene %d %v ", client.User.Id, gconv.Int(req.Data), result)
