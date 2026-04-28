@@ -51,7 +51,7 @@ func NewManager(lobbyCap, mapCap int) *Manager {
 		g.Log("test").Async().Errorf(context.TODO(), "配置文件不存在: %s", gameConfigPath)
 		panic("缺少配置文件")
 	} else {
-		g.Log("test").Async().Infof(context.TODO(), "配置文件: %s", gameConfigPath)
+		g.Log("test").Async().Infof(context.TODO(), "配置文件: %s", gameConfigJson)
 	}
 
 	gjson.Unmarshal([]byte(gameConfigJson), &gameConfig)
