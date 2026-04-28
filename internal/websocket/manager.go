@@ -12,6 +12,7 @@ import (
 	"github.com/gogf/gf/v2/frame/g"
 	"github.com/gogf/gf/v2/os/gfile"
 	"github.com/gogf/gf/v2/os/gtime"
+	"github.com/gogf/gf/v2/text/gstr"
 	"github.com/gorilla/websocket"
 )
 
@@ -26,6 +27,7 @@ type GameConfig struct {
 	LobbyCapacity int    `json:"lobbyCapacity"`
 	MapCapacity   int    `json:"mapCapacity"`
 	Ip            string `json:"ip"`
+	RecordHost    string `json:"recordHost"`
 }
 
 type Manager struct {
@@ -39,17 +41,24 @@ type Manager struct {
 
 var mapSeq int64
 var lobbySeq int64
+var recordHost string = "https://game.17vision.com"
 
 func NewManager(lobbyCap, mapCap int) *Manager {
 	var gameConfig *GameConfig
 	gameConfigPath := gfile.Join(gfile.Pwd(), "storage/config", "game.json")
 	gameConfigJson := gfile.GetContents(gameConfigPath)
 	if gameConfigJson == "" {
-		g.Log("test").Async().Infof(context.TODO(), "配置文件不存在: %s", gameConfigPath)
+		g.Log("test").Async().Errorf(context.TODO(), "配置文件不存在: %s", gameConfigPath)
 		panic("缺少配置文件")
+	} else {
+		g.Log("test").Async().Infof(context.TODO(), "配置文件: %s", gameConfigPath)
 	}
 
 	gjson.Unmarshal([]byte(gameConfigJson), &gameConfig)
+
+	if gameConfig.RecordHost != "" {
+		recordHost = gameConfig.RecordHost
+	}
 
 	return &Manager{
 		rooms:             make(map[RoomType][]*Room),
@@ -423,7 +432,8 @@ func (manager *Manager) start(ctx context.Context, roomId string) bool {
 			"start_at":   gtime.NewFromTimeStamp(client.User.Extend.StartTime).Format("Y-m-d H:i:s"),
 			"sn":         sn,
 		}
-		r, err := g.Client().Post(ctx, "https://game.17vision.com/api/game/start_records", data)
+
+		r, err := g.Client().Post(ctx, gstr.Join([]string{recordHost, "api/game/start_records"}, "/"), data)
 
 		if err != nil {
 			continue
@@ -612,7 +622,7 @@ func (manager *Manager) removeClient(ctx context.Context, userId uint64) {
 		apiCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 
-		res, err := g.Client().Put(apiCtx, "https://game.17vision.com/api/game/start_records", g.Map{"id": recordId, "end_at": gtime.NewFromTimeStamp(time.Now().Unix()).Format("Y-m-d H:i:s")})
+		res, err := g.Client().Put(apiCtx, gstr.Join([]string{recordHost, "api/game/start_records"}, "/"), g.Map{"id": recordId, "end_at": gtime.NewFromTimeStamp(time.Now().Unix()).Format("Y-m-d H:i:s")})
 
 		if err != nil {
 			g.Log("test").Errorf(apiCtx, "上报结束失败 recordId=%d err=%v", recordId, err)
