@@ -1,6 +1,7 @@
 package websocket
 
 import (
+	"net"
 	"net/http"
 	"time"
 	"zjsj/internal/pkg/utils"
@@ -70,8 +71,10 @@ func websocketHandler(r *ghttp.Request) {
 	}
 
 	user.Extend = &UserExtend{
-		IsReady:  false,
-		IsServer: false,
+		IsReady:     false,
+		IsServer:    false,
+		ConnectTime: time.Now().Unix(),
+		ConnectIp:   clientIPv4(r),
 	}
 
 	g.Log().Info(ctx, "用户进入：", gjson.MustEncodeString(user))
@@ -239,6 +242,34 @@ func getRoomsHandler(r *ghttp.Request) {
 		"rooms":   outRooms,
 		"servers": outGameServerClient,
 	})
+}
+
+func clientIPv4(r *ghttp.Request) string {
+	ip := r.GetClientIp() // 已经处理过 X-Forwarded-For
+
+	// 去掉端口（极少情况 RemoteAddr 会带端口）
+	if host, _, err := net.SplitHostPort(ip); err == nil {
+		ip = host
+	}
+
+	// 解析地址
+	parsed := net.ParseIP(ip)
+	if parsed == nil {
+		return "" // 非法地址
+	}
+
+	// ::1 -> 127.0.0.1
+	if parsed.IsLoopback() {
+		return "127.0.0.1"
+	}
+
+	// ::ffff:192.168.1.100 -> 192.168.1.100
+	if v4 := parsed.To4(); v4 != nil {
+		return v4.String()
+	}
+
+	// 纯 IPv6 无法映射，按需返回空串或原地址
+	return "" // 或者 return ip，看你业务
 }
 
 func testHandler(r *ghttp.Request) {

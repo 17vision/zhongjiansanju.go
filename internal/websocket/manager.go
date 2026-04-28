@@ -11,6 +11,7 @@ import (
 	"github.com/gogf/gf/v2/errors/gerror"
 	"github.com/gogf/gf/v2/frame/g"
 	"github.com/gogf/gf/v2/os/gfile"
+	"github.com/gogf/gf/v2/os/gtime"
 	"github.com/gorilla/websocket"
 )
 
@@ -397,14 +398,57 @@ func (manager *Manager) start(ctx context.Context, roomId string) bool {
 	}, nil)
 
 	// 通知游戏服务器开始游戏
+	var sn string
 	if room.GameServerClient != nil {
 		manager.unicastAsync(ctx, room.GameServerClient, WSMessage{
 			Type: MsgTypeStartGame,
 			Data: nil,
 		})
+
+		sn = "start_success"
 		g.Log("test").Async().Infof(ctx, "开始游戏 给游戏客户端发消息。用户 id = %d, 端口 = %d, ", room.GameServerClient.User.Id, room.GameServerClient.User.Port)
 	} else {
+		sn = "start_fail"
 		g.Log("test").Async().Error(ctx, "开始游戏失败, 游戏客户端不存在")
+	}
+
+	// 设置房间用户状态，提交服务端统计
+	for _, client := range room.Clients {
+		client.User.Extend.StartTime = time.Now().Unix()
+
+		data := g.Map{
+			"name":       "hxnc-hongkou",
+			"ip":         client.User.Extend.ConnectIp,
+			"connect_at": gtime.NewFromTimeStamp(client.User.Extend.ConnectTime).Format("Y-m-d H:i:s"),
+			"start_at":   gtime.NewFromTimeStamp(client.User.Extend.StartTime).Format("Y-m-d H:i:s"),
+			"sn":         sn,
+		}
+		r, err := g.Client().Post(ctx, "https://game.17vision.com/api/game/start_records", data)
+
+		if err != nil {
+			continue
+		}
+		defer r.Close()
+
+		result := r.ReadAllString()
+
+		g.Log("test").Async().Infof(ctx, "提交统计返回数据:%s", result)
+
+		type GameStartRecord struct {
+			ID        uint64 `json:"id"`
+			Name      string `json:"name"`
+			ConnectAt string `json:"connect_at"`
+			StartAt   string `json:"start_at"`
+		}
+
+		var gameStartRecord GameStartRecord
+		err = gjson.Unmarshal([]byte(result), &gameStartRecord)
+		if err == nil {
+			client.User.Extend.RecordId = gameStartRecord.ID
+			g.Log("test").Async().Infof(ctx, "用户 %d 开始游戏已统计。统计 id 是 %d", client.User.Id, gameStartRecord.ID)
+		} else {
+			g.Log("test").Async().Errorf(ctx, "用户 %d 开始游戏统计失败。错误是 %s", client.User.Id, err.Error())
+		}
 	}
 
 	return true
@@ -519,6 +563,8 @@ func (manager *Manager) removeClient(ctx context.Context, userId uint64) {
 
 	delete(manager.clients, userId)
 
+	recordId := client.User.Extend.RecordId
+
 	// 如果是游戏服务器挂了，就删除游戏服务器
 	if client.User.Type == TypeGameServer {
 		client.User.Extend.IsServer = false
@@ -559,6 +605,19 @@ func (manager *Manager) removeClient(ctx context.Context, userId uint64) {
 			}
 
 			manager.destroyRoom()
+		}
+	}
+
+	if recordId != 0 {
+		apiCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		res, err := g.Client().Put(apiCtx, "https://game.17vision.com/api/game/start_records", g.Map{"id": recordId, "end_at": gtime.NewFromTimeStamp(time.Now().Unix()).Format("Y-m-d H:i:s")})
+
+		if err != nil {
+			g.Log("test").Errorf(apiCtx, "上报结束失败 recordId=%d err=%v", recordId, err)
+		} else {
+			g.Log("test").Debugf(apiCtx, "上报结束成功 recordId=%d resp=%s", recordId, res.ReadAllString())
 		}
 	}
 }

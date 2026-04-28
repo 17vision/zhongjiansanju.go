@@ -67,8 +67,12 @@ type User struct {
 }
 
 type UserExtend struct {
-	IsReady  bool `json:"isReady"`
-	IsServer bool `json:"isServer"` // 给服务机器人的，看是不是再服务中
+	IsReady     bool   `json:"isReady"`
+	IsServer    bool   `json:"isServer"` // 给服务机器人的，看是不是再服务中
+	StartTime   int64  `json:"startTime"`
+	ConnectTime int64  `json:"connectTime"`
+	ConnectIp   string `json:"connectIp"`
+	RecordId    uint64 `json:"recordId"`
 }
 
 // game 服务器(特殊用户)
