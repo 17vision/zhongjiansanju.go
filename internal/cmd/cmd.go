@@ -7,7 +7,8 @@ import (
 	"github.com/gogf/gf/v2/net/ghttp"
 	"github.com/gogf/gf/v2/os/gcmd"
 
-	"zjsj/internal/controller/hello"
+	"zjsj/internal/controller/user"
+	"zjsj/internal/service"
 	"zjsj/internal/websocket"
 )
 
@@ -19,10 +20,16 @@ var (
 		Func: func(ctx context.Context, parser *gcmd.Parser) (err error) {
 			s := g.Server()
 			s.Group("/", func(group *ghttp.RouterGroup) {
-				group.Middleware(ghttp.MiddlewareHandlerResponse)
-				group.Bind(
-					hello.NewV1(),
-				)
+				group.Middleware(service.Middleware().GateKeeper)
+				group.Middleware(service.Middleware().Response)
+
+				group.Group("/admin", func(group *ghttp.RouterGroup) {
+					group.POST("/login", user.NewAdmin().Login)
+
+					group.Group("/", func(group *ghttp.RouterGroup) {
+						group.Middleware(service.Middleware().Auth)
+					})
+				})
 			})
 
 			websocket.BindRouters(s)

@@ -2,14 +2,14 @@
 // Code generated and maintained by GoFrame CLI tool. DO NOT EDIT.
 // =================================================================================
 
-package hello
+package user
 
 import (
 	"context"
 
-	"zjsj/api/hello/v1"
+	"zjsj/api/user/admin"
 )
 
-type IHelloV1 interface {
-	Hello(ctx context.Context, req *v1.HelloReq) (res *v1.HelloRes, err error)
+type IUserAdmin interface {
+	Login(ctx context.Context, req *admin.LoginReq) (res *admin.LoginRes, err error)
 }

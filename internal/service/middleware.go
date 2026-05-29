@@ -10,22 +10,25 @@ import (
 )
 
 type (
-	IMiiddleware interface {
+	IMiddleware interface {
+		GateKeeper(r *ghttp.Request)
 		CORS(r *ghttp.Request)
+		Response(r *ghttp.Request)
+		Auth(r *ghttp.Request)
 	}
 )
 
 var (
-	localMiiddleware IMiiddleware
+	localMiddleware IMiddleware
 )
 
-func Miiddleware() IMiiddleware {
-	if localMiiddleware == nil {
-		panic("implement not found for interface IMiiddleware, forgot register?")
+func Middleware() IMiddleware {
+	if localMiddleware == nil {
+		panic("implement not found for interface IMiddleware, forgot register?")
 	}
-	return localMiiddleware
+	return localMiddleware
 }
 
-func RegisterMiiddleware(i IMiiddleware) {
-	localMiiddleware = i
+func RegisterMiddleware(i IMiddleware) {
+	localMiddleware = i
 }

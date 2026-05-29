@@ -24,7 +24,7 @@ func BindRouters(s *ghttp.Server) {
 	s.SetSwaggerPath("")
 
 	s.Group("/ws", func(group *ghttp.RouterGroup) {
-		group.Middleware(service.Miiddleware().CORS)
+		group.Middleware(service.Middleware().CORS)
 
 		group.GET("/test", testHandler)
 

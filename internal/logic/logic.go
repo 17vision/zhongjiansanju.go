@@ -6,4 +6,5 @@ package logic
 
 import (
 	_ "zjsj/internal/logic/middleware"
+	_ "zjsj/internal/logic/user"
 )

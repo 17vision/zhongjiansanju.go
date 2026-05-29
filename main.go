@@ -7,6 +7,8 @@ import (
 
 	_ "time/tzdata"
 
+	_ "github.com/gogf/gf/contrib/drivers/mysql/v2"
+
 	"github.com/gogf/gf/v2/os/gctx"
 	"github.com/gogf/gf/v2/os/gtime"
 
