@@ -3,7 +3,7 @@
 gfcli:
   gen:
     dao:
-      - link: "mysql:root:ycsjgame2026root@tcp(127.0.0.1:33060)/hxnc?charset=utf8mb4&loc=Local&parseTime=true"
+      - link: "mysql:root:ycsjgame2026root@tcp(127.0.0.1:33060)/hxnc?charset=utf8mb4&collation=utf8mb4_unicode_ci&loc=Local&parseTime=true"
         descriptionTag: true
         tables: "users,game_start_records,glasses"
 

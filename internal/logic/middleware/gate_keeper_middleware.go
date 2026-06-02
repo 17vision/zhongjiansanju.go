@@ -12,7 +12,7 @@ func GateKeeper(r *ghttp.Request) bool {
 	if sign == "" || time == "" {
 		r.Response.WriteHeader(403)
 		r.Response.WriteJson(g.Map{
-			"msg": "请 5 分钟后再试",
+			"message": "请 5 分钟后再试",
 		})
 		return false
 	}
@@ -28,7 +28,7 @@ func GateKeeper(r *ghttp.Request) bool {
 	if newSign != sign {
 		r.Response.WriteHeader(403)
 		r.Response.WriteJson(g.Map{
-			"msg": "请 10 分钟后再试",
+			"message": "请 10 分钟后再试",
 		})
 		return false
 	}

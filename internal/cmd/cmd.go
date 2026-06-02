@@ -20,6 +20,7 @@ var (
 		Func: func(ctx context.Context, parser *gcmd.Parser) (err error) {
 			s := g.Server()
 			s.Group("/", func(group *ghttp.RouterGroup) {
+				group.Middleware(service.Middleware().CORS)
 				group.Middleware(service.Middleware().GateKeeper)
 				group.Middleware(service.Middleware().Response)
 
@@ -28,6 +29,14 @@ var (
 
 					group.Group("/", func(group *ghttp.RouterGroup) {
 						group.Middleware(service.Middleware().Auth)
+
+						group.GET("/me", user.NewAdmin().Me)
+
+						group.GET("/users", user.NewAdmin().UserList)
+
+						group.POST("/users", user.NewAdmin().Create)
+
+						group.PUT("/users", user.NewAdmin().Update)
 					})
 				})
 			})

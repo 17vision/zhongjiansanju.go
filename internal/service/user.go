@@ -12,7 +12,12 @@ import (
 
 type (
 	IUser interface {
+		AccountExist(ctx context.Context, account string) (res bool, err error)
+		Create(ctx context.Context, req *model.UserCreateReq) (res *model.UserCreateRes, err error)
 		Login(ctx context.Context, account string, password string) (res *model.UserLoginRes, err error)
+		Me(ctx context.Context, id int64) (res *model.User, err error)
+		Update(ctx context.Context, id int64, req *model.UserUpdateReq) (res *model.UserUpdateRes, err error)
+		List(ctx context.Context, req *model.UserListReq) (res *model.UserListRes, err error)
 	}
 )
 
