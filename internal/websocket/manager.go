@@ -526,6 +526,63 @@ func (manager *Manager) stop(ctx context.Context, roomId string) bool {
 	return true
 }
 
+// 告诉客户端，可以进房间
+func (manager *Manager) pushUserCanEnterRoom(ctx context.Context, client *Client) {
+	// 如果有空房间可以进或有空的服务器
+	var room *Room
+	room = manager.getMapRoom("hxnc-hongkou")
+
+	// 无房间
+	if room == nil {
+		if len(manager.gameServerClients) == 0 {
+			return
+		}
+
+		var selectClient *Client
+		for _, tempClient := range manager.gameServerClients {
+			if tempClient.User.Extend.IsServer == false {
+				selectClient = tempClient
+				break
+			}
+		}
+
+		// 无空闲服务
+		if selectClient == nil {
+			return
+		}
+		g.Log("test").Async().Infof(ctx, "有空闲服务器用户 %d 可以进入房间", client.User.Id)
+	} else {
+		g.Log("test").Async().Infof(ctx, "有房间用户 %d 可以进入房间", client.User.Id)
+	}
+
+	manager.unicastAsync(ctx, client, WSMessage{
+		Type: CanEnterRoom,
+		Data: nil,
+	})
+}
+
+// 检查是否有未进入房间的用户，如果有，并少于房间允许人数，也是可以进房间
+func (manager *Manager) checkUserCanEnterRoom(ctx context.Context) {
+	var clients []*Client
+	for _, rooms := range manager.rooms[RoomTypeLobby] {
+		for _, c := range rooms.Clients {
+			if len(clients) >= manager.gameConfig.MapCapacity {
+				break
+			}
+			clients = append(clients, c)
+		}
+	}
+
+	g.Log("test").Async().Infof(ctx, "有 %d 个用户可以进入房间", len(clients))
+
+	for _, c := range clients {
+		manager.unicastAsync(ctx, c, WSMessage{
+			Type: CanEnterRoom,
+			Data: nil,
+		})
+	}
+}
+
 // 推送房间用户
 func (manager *Manager) pushRoomUserList(ctx context.Context, room *Room, userId uint64) {
 	users := make([]*User, 0, len(room.Clients))

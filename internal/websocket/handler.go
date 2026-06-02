@@ -113,11 +113,17 @@ func websocketHandler(r *ghttp.Request) {
 
 		// 广播消息，有人进来了
 		manager.broadcastUserJoined(ctx, room, &user)
+
+		// 如果用户可以进房间就发给用户
+		manager.pushUserCanEnterRoom(ctx, client)
 	} else {
 		manager.unicastAsync(ctx, client, WSMessage{
 			Type: MsgTypeUserJoined,
 			Data: UserEventData{UserId: user.Id, Ip: manager.gameConfig.Ip},
 		})
+
+		// 服务器进来，给未进入房间的用户发送命令
+		manager.checkUserCanEnterRoom(ctx)
 	}
 }
 
