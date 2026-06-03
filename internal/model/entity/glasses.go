@@ -11,7 +11,6 @@ import (
 // Glasses is the golang structure for table glasses.
 type Glasses struct {
 	Id                          uint64      `json:"id"                          orm:"id"                            description:""`            //
-	GameId                      uint64      `json:"gameId"                      orm:"game_id"                       description:""`            //
 	Name                        string      `json:"name"                        orm:"name"                          description:"设备名称"`        // 设备名称
 	BatteryLevel                string      `json:"batteryLevel"                orm:"battery_level"                 description:"电量"`          // 电量
 	SystemVersion               string      `json:"systemVersion"               orm:"system_version"                description:"系统版本"`        // 系统版本

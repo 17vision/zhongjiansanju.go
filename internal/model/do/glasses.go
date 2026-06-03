@@ -13,7 +13,6 @@ import (
 type Glasses struct {
 	g.Meta                      `orm:"table:glasses, do:true"`
 	Id                          any         //
-	GameId                      any         //
 	Name                        any         // 设备名称
 	BatteryLevel                any         // 电量
 	SystemVersion               any         // 系统版本

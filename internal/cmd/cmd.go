@@ -7,6 +7,8 @@ import (
 	"github.com/gogf/gf/v2/net/ghttp"
 	"github.com/gogf/gf/v2/os/gcmd"
 
+	"zjsj/internal/controller/glasses"
+	"zjsj/internal/controller/glasses_use"
 	"zjsj/internal/controller/user"
 	"zjsj/internal/service"
 	"zjsj/internal/websocket"
@@ -39,6 +41,16 @@ var (
 						group.PUT("/users", user.NewAdmin().Update)
 					})
 				})
+			})
+
+			// 插入设备
+			s.Group("/api", func(group *ghttp.RouterGroup) {
+				group.Middleware(service.Middleware().GateKeeper)
+				group.Middleware(service.Middleware().Response)
+
+				group.POST("glasses", glasses.NewApi().Create)
+
+				group.POST("glasses_use", glasses_use.NewApi().Create)
 			})
 
 			websocket.BindRouters(s)

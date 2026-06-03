@@ -22,7 +22,6 @@ type GlassesDao struct {
 // GlassesColumns defines and stores column names for the table glasses.
 type GlassesColumns struct {
 	Id                          string //
-	GameId                      string //
 	Name                        string // 设备名称
 	BatteryLevel                string // 电量
 	SystemVersion               string // 系统版本
@@ -52,7 +51,6 @@ type GlassesColumns struct {
 // glassesColumns holds the columns for the table glasses.
 var glassesColumns = GlassesColumns{
 	Id:                          "id",
-	GameId:                      "game_id",
 	Name:                        "name",
 	BatteryLevel:                "battery_level",
 	SystemVersion:               "system_version",
