@@ -78,6 +78,33 @@ func websocketHandler(r *ghttp.Request) {
 	}
 
 	g.Log().Info(ctx, "用户进入：", gjson.MustEncodeString(user))
+	if user.Type == TypeUser {
+		res, err := service.GlassesUse().One(ctx, user.EquipmentSn)
+
+		if err != nil {
+			g.Log().Error(ctx, "初始化用户信息失败", err.Error())
+			return
+		}
+
+		if res == nil {
+			g.Log().Error(ctx, "初始化用户信息失败", "设备和设备关系不存在")
+			return
+		}
+
+		g.Log().Info(ctx, "相关设备信息：", gjson.MustEncodeString(res))
+
+		user.Nickname = res.GlassesUse.Nickname
+		user.Model = res.GlassesUse.Model
+		user.GlassesUseId = res.GlassesUse.Id
+
+		err = service.GlassesUse().UpdateStatus(ctx, int64(res.GlassesUse.Id), 2)
+		if err != nil {
+			g.Log().Error(ctx, "更新设备状态为 2 失败", err.Error())
+			return
+		} else {
+			g.Log().Info(ctx, "更新设备状态为 2 成功")
+		}
+	}
 
 	// 断开处理
 	conn.SetCloseHandler(func(code int, text string) error {

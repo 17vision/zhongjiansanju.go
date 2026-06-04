@@ -12,7 +12,9 @@ import (
 
 type (
 	IGlassesUse interface {
+		UpdateStatus(ctx context.Context, id int64, status uint) (err error)
 		Create(ctx context.Context, req *model.GlassesUseCreateReq) (res *model.GlassesUseCreateRes, err error)
+		One(ctx context.Context, equipmentSn string) (res *model.GlassesUseOneRes, err error)
 	}
 )
 

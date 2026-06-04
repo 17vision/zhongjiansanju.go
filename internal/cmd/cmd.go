@@ -60,6 +60,9 @@ var (
 				group.POST("/glasses", glasses.NewApi().Create)
 
 				group.POST("/glasses_use", glasses_use.NewApi().Create)
+
+				// 其实不需要这个接口
+				group.GET("/glasses_use/one", glasses_use.NewApi().One)
 			})
 
 			websocket.BindRouters(s)

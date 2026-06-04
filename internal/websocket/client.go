@@ -57,13 +57,16 @@ const (
 
 // 用户信息
 type User struct {
-	Type     UserType    `json:"type"`
-	Port     int         `json:"port"`
-	Id       uint64      `json:"id"`
-	Nickname string      `json:"nickname"`
-	Gender   Gender      `json:"gender"`
-	Avatar   string      `json:"avatar"`
-	Extend   *UserExtend `json:"extend"`
+	Type         UserType    `json:"type"`
+	EquipmentSn  string      `json:"equipmentSn" dc:"设备序列号"`
+	Id           uint64      `json:"id"`
+	Nickname     string      `json:"nickname" dc:"昵称"`
+	Model        string      `json:"model" dc:"模型"`
+	Gender       Gender      `json:"gender"`
+	Avatar       string      `json:"avatar"`
+	Extend       *UserExtend `json:"extend"`
+	Port         int         `json:"port"`
+	GlassesUseId uint64      `json:"glassesUseId" dc:"使用的模型 id"`
 }
 
 type UserExtend struct {

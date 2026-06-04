@@ -14,3 +14,12 @@ type CreateReq struct {
 type CreateRes struct {
 	model.GlassesUseCreateRes
 }
+
+type OneReq struct {
+	g.Meta `path:"/glasses_use/one" method:"get" tags:"眼镜使用" summary:"获取眼镜使用记录" description:"获取眼镜使用记录"`
+	model.GlassesUseOneReq
+}
+
+type OneRes struct {
+	model.GlassesUseOneRes
+}

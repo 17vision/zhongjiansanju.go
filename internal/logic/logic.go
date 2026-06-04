@@ -5,6 +5,7 @@
 package logic
 
 import (
+	_ "zjsj/internal/logic/game_records"
 	_ "zjsj/internal/logic/glasses"
 	_ "zjsj/internal/logic/glasses_use"
 	_ "zjsj/internal/logic/middleware"

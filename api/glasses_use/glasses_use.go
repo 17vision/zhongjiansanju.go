@@ -12,4 +12,5 @@ import (
 
 type IGlassesUseApi interface {
 	Create(ctx context.Context, req *api.CreateReq) (res *api.CreateRes, err error)
+	One(ctx context.Context, req *api.OneReq) (res *api.OneRes, err error)
 }

@@ -8,15 +8,15 @@ import (
 	"zjsj/internal/dao/internal"
 )
 
-// gameStartRecordsDao is the data access object for the table game_start_records.
+// gameRecordsDao is the data access object for the table game_records.
 // You can define custom methods on it to extend its functionality as needed.
-type gameStartRecordsDao struct {
-	*internal.GameStartRecordsDao
+type gameRecordsDao struct {
+	*internal.GameRecordsDao
 }
 
 var (
-	// GameStartRecords is a globally accessible object for table game_start_records operations.
-	GameStartRecords = gameStartRecordsDao{internal.NewGameStartRecordsDao()}
+	// GameRecords is a globally accessible object for table game_records operations.
+	GameRecords = gameRecordsDao{internal.NewGameRecordsDao()}
 )
 
 // Add your custom methods and functionality below.
