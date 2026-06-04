@@ -12,6 +12,7 @@ import (
 type Glasses struct {
 	Id                          uint64      `json:"id"                          orm:"id"                            description:""`            //
 	Name                        string      `json:"name"                        orm:"name"                          description:"设备名称"`        // 设备名称
+	Code                        string      `json:"code"                        orm:"code"                          description:"设备编号"`        // 设备编号
 	BatteryLevel                string      `json:"batteryLevel"                orm:"battery_level"                 description:"电量"`          // 电量
 	SystemVersion               string      `json:"systemVersion"               orm:"system_version"                description:"系统版本"`        // 系统版本
 	EquipmentModel              string      `json:"equipmentModel"              orm:"equipment_model"               description:"设备型号"`        // 设备型号
@@ -33,6 +34,7 @@ type Glasses struct {
 	LargespaceMapInfo           string      `json:"largespaceMapInfo"           orm:"largespace_map_info"           description:"大空间地图信息"`     // 大空间地图信息
 	Trackers                    string      `json:"trackers"                    orm:"trackers"                      description:"追踪器"`         // 追踪器
 	Status                      uint        `json:"status"                      orm:"status"                        description:"1 上线 2 下线"`   // 1 上线 2 下线
+	UseStatus                   uint        `json:"useStatus"                   orm:"use_status"                    description:"1 可用 2 不可用"`  // 1 可用 2 不可用
 	CreatedAt                   *gtime.Time `json:"createdAt"                   orm:"created_at"                    description:""`            //
 	UpdatedAt                   *gtime.Time `json:"updatedAt"                   orm:"updated_at"                    description:""`            //
 }

@@ -14,6 +14,7 @@ type Glasses struct {
 	g.Meta                      `orm:"table:glasses, do:true"`
 	Id                          any         //
 	Name                        any         // 设备名称
+	Code                        any         // 设备编号
 	BatteryLevel                any         // 电量
 	SystemVersion               any         // 系统版本
 	EquipmentModel              any         // 设备型号
@@ -35,6 +36,7 @@ type Glasses struct {
 	LargespaceMapInfo           any         // 大空间地图信息
 	Trackers                    any         // 追踪器
 	Status                      any         // 1 上线 2 下线
+	UseStatus                   any         // 1 可用 2 不可用
 	CreatedAt                   *gtime.Time //
 	UpdatedAt                   *gtime.Time //
 }

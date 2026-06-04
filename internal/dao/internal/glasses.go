@@ -23,6 +23,7 @@ type GlassesDao struct {
 type GlassesColumns struct {
 	Id                          string //
 	Name                        string // 设备名称
+	Code                        string // 设备编号
 	BatteryLevel                string // 电量
 	SystemVersion               string // 系统版本
 	EquipmentModel              string // 设备型号
@@ -44,6 +45,7 @@ type GlassesColumns struct {
 	LargespaceMapInfo           string // 大空间地图信息
 	Trackers                    string // 追踪器
 	Status                      string // 1 上线 2 下线
+	UseStatus                   string // 1 可用 2 不可用
 	CreatedAt                   string //
 	UpdatedAt                   string //
 }
@@ -52,6 +54,7 @@ type GlassesColumns struct {
 var glassesColumns = GlassesColumns{
 	Id:                          "id",
 	Name:                        "name",
+	Code:                        "code",
 	BatteryLevel:                "battery_level",
 	SystemVersion:               "system_version",
 	EquipmentModel:              "equipment_model",
@@ -73,6 +76,7 @@ var glassesColumns = GlassesColumns{
 	LargespaceMapInfo:           "largespace_map_info",
 	Trackers:                    "trackers",
 	Status:                      "status",
+	UseStatus:                   "use_status",
 	CreatedAt:                   "created_at",
 	UpdatedAt:                   "updated_at",
 }

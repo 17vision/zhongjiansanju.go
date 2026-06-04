@@ -6,9 +6,9 @@ import (
 	"zjsj/internal/model"
 	"zjsj/internal/model/do"
 	"zjsj/internal/model/entity"
+	"zjsj/internal/service"
 
 	"github.com/gogf/gf/v2/errors/gerror"
-	"github.com/gogf/gf/v2/frame/g"
 	"github.com/gogf/gf/v2/os/gtime"
 	"github.com/gogf/gf/v2/util/gconv"
 )
@@ -24,15 +24,13 @@ func (s *sGlassesUse) Create(ctx context.Context, req *model.GlassesUseCreateReq
 
 	var glassesUse *entity.GlassesUses
 	err = dao.GlassesUses.Ctx(ctx).Where(do.GlassesUses{
-		EquipmentSn: req.EquipmentSn,
-		Status:      1,
+		GlassesId: req.GlassesId,
+		Status:    1,
 	}).OrderDesc(columns.Id).Scan(&glassesUse)
 
 	if err != nil {
 		return nil, gerror.Wrap(err, "获取数据失败")
 	}
-
-	g.Dump("转换后的DO数据:", data)
 
 	var id int64
 	if glassesUse != nil {
@@ -48,6 +46,9 @@ func (s *sGlassesUse) Create(ctx context.Context, req *model.GlassesUseCreateReq
 	if err != nil {
 		return nil, gerror.Wrap(err, "提交数据失败")
 	}
+
+	// 将设备状置为 2
+	service.Glasses().UpdateUseStatus(ctx, []int64{req.GlassesId}, 2)
 
 	res = &model.GlassesUseCreateRes{
 		Id:        gconv.Uint64(id),

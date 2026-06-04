@@ -21,24 +21,24 @@ type GlassesUsesDao struct {
 
 // GlassesUsesColumns defines and stores column names for the table glasses_uses.
 type GlassesUsesColumns struct {
-	Id          string //
-	EquipmentSn string // 设备序列号
-	Nickname    string // 昵称
-	Model       string // 模型
-	Status      string // 状态 1 待使用 2 使用中 3 已使用 4 已作废
-	CreatedAt   string //
-	UpdatedAt   string //
+	Id        string //
+	GlassesId string // 眼镜 id
+	Nickname  string // 昵称
+	Model     string // 模型
+	Status    string // 状态 1 待使用 2 使用中 3 已使用 4 已作废
+	CreatedAt string //
+	UpdatedAt string //
 }
 
 // glassesUsesColumns holds the columns for the table glasses_uses.
 var glassesUsesColumns = GlassesUsesColumns{
-	Id:          "id",
-	EquipmentSn: "equipment_sn",
-	Nickname:    "nickname",
-	Model:       "model",
-	Status:      "status",
-	CreatedAt:   "created_at",
-	UpdatedAt:   "updated_at",
+	Id:        "id",
+	GlassesId: "glasses_id",
+	Nickname:  "nickname",
+	Model:     "model",
+	Status:    "status",
+	CreatedAt: "created_at",
+	UpdatedAt: "updated_at",
 }
 
 // NewGlassesUsesDao creates and returns a new DAO object for table data access.

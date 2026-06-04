@@ -39,6 +39,13 @@ var (
 						group.POST("/users", user.NewAdmin().Create)
 
 						group.PUT("/users", user.NewAdmin().Update)
+
+						// 设备
+						group.GET("/glasses/info", glasses.NewAdmin().Info)
+
+						group.GET("/glasses", glasses.NewAdmin().List)
+
+						group.POST("/glasses", glasses.NewAdmin().Create)
 					})
 				})
 			})
@@ -48,9 +55,11 @@ var (
 				group.Middleware(service.Middleware().GateKeeper)
 				group.Middleware(service.Middleware().Response)
 
-				group.POST("glasses", glasses.NewApi().Create)
+				group.GET("/glasses", glasses.NewApi().List)
 
-				group.POST("glasses_use", glasses_use.NewApi().Create)
+				group.POST("/glasses", glasses.NewApi().Create)
+
+				group.POST("/glasses_use", glasses_use.NewApi().Create)
 			})
 
 			websocket.BindRouters(s)

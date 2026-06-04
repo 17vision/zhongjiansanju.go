@@ -15,3 +15,13 @@ type CreateReq struct {
 type CreateRes struct {
 	model.GlassesCreateRes
 }
+
+// 列表
+type ListReq struct {
+	g.Meta `path:"/glasses" method:"get" tags:"设备管理" summary:"获取眼镜列表" description:"获取眼镜列表"`
+	model.GlassesListReq
+}
+
+type ListRes struct {
+	model.GlassesListRes
+}

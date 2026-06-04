@@ -11,12 +11,12 @@ import (
 
 // GlassesUses is the golang structure of table glasses_uses for DAO operations like Where/Data.
 type GlassesUses struct {
-	g.Meta      `orm:"table:glasses_uses, do:true"`
-	Id          any         //
-	EquipmentSn any         // 设备序列号
-	Nickname    any         // 昵称
-	Model       any         // 模型
-	Status      any         // 状态 1 待使用 2 使用中 3 已使用 4 已作废
-	CreatedAt   *gtime.Time //
-	UpdatedAt   *gtime.Time //
+	g.Meta    `orm:"table:glasses_uses, do:true"`
+	Id        any         //
+	GlassesId any         // 眼镜 id
+	Nickname  any         // 昵称
+	Model     any         // 模型
+	Status    any         // 状态 1 待使用 2 使用中 3 已使用 4 已作废
+	CreatedAt *gtime.Time //
+	UpdatedAt *gtime.Time //
 }

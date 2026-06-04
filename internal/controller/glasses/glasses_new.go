@@ -13,3 +13,9 @@ type ControllerApi struct{}
 func NewApi() glasses.IGlassesApi {
 	return &ControllerApi{}
 }
+
+type ControllerAdmin struct{}
+
+func NewAdmin() glasses.IGlassesAdmin {
+	return &ControllerAdmin{}
+}
