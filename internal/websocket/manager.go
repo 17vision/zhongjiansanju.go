@@ -186,7 +186,7 @@ func (manager *Manager) KickRoom(ctx context.Context, room *Room, user *User, re
 	room = manager.createOrJoinLobby(client)
 
 	// 把房间里的人推送给自己
-	manager.pushRoomUserList(ctx, room, user.Id)
+	manager.pushRoomUserList(ctx, room, *user)
 
 	// 广播消息，有人进来了
 	manager.broadcastUserJoined(ctx, room, user)
@@ -362,7 +362,7 @@ func (manager *Manager) JoinRoom(ctx context.Context, userId uint64, roomID stri
 	newRoom.Clients[client.User.Id] = client
 
 	// 把房间里的人推送给自己
-	manager.pushRoomUserList(ctx, newRoom, client.User.Id)
+	manager.pushRoomUserList(ctx, newRoom, *client.User)
 
 	// 广播消息，有人进来了
 	manager.broadcastUserJoined(ctx, newRoom, client.User)
@@ -570,7 +570,7 @@ func (manager *Manager) checkUserCanEnterRoom(ctx context.Context) {
 }
 
 // 推送房间用户
-func (manager *Manager) pushRoomUserList(ctx context.Context, room *Room, userId uint64) {
+func (manager *Manager) pushRoomUserList(ctx context.Context, room *Room, user User) {
 	users := make([]*User, 0, len(room.Clients))
 
 	for _, c := range room.Clients {
@@ -579,10 +579,10 @@ func (manager *Manager) pushRoomUserList(ctx context.Context, room *Room, userId
 		}
 	}
 
-	if c, ok := room.Clients[userId]; ok {
+	if c, ok := room.Clients[user.Id]; ok {
 		manager.unicastAsync(ctx, c, WSMessage{
 			Type: MsgTypeRoomUsers,
-			Data: RoomUsersData{RoomId: room.Id, Users: users},
+			Data: RoomUsersData{RoomId: room.Id, User: user, Users: users},
 		})
 	}
 }

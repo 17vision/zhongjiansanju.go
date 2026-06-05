@@ -10,3 +10,8 @@ type PaginateRes struct {
 	PageSize int `json:"pageSize"`
 	Total    int `json:"total"`
 }
+
+type Result struct {
+	Result  bool   `json:"result"`
+	Message string `json:"message"`
+}

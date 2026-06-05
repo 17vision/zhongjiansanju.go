@@ -136,7 +136,7 @@ func websocketHandler(r *ghttp.Request) {
 
 	if room != nil {
 		// 把房间里的人推送给自己
-		manager.pushRoomUserList(ctx, room, user.Id)
+		manager.pushRoomUserList(ctx, room, user)
 
 		// 广播消息，有人进来了
 		manager.broadcastUserJoined(ctx, room, &user)

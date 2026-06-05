@@ -32,8 +32,10 @@ var (
 					group.Group("/", func(group *ghttp.RouterGroup) {
 						group.Middleware(service.Middleware().Auth)
 
+						// 自己
 						group.GET("/me", user.NewAdmin().Me)
 
+						// 用户
 						group.GET("/users", user.NewAdmin().UserList)
 
 						group.POST("/users", user.NewAdmin().Create)
@@ -46,6 +48,8 @@ var (
 						group.GET("/glasses", glasses.NewAdmin().List)
 
 						group.POST("/glasses", glasses.NewAdmin().Create)
+
+						group.DELETE("/glasses", glasses.NewAdmin().Delete)
 					})
 				})
 			})
@@ -55,13 +59,14 @@ var (
 				group.Middleware(service.Middleware().GateKeeper)
 				group.Middleware(service.Middleware().Response)
 
+				// 设备
 				group.GET("/glasses", glasses.NewApi().List)
 
 				group.POST("/glasses", glasses.NewApi().Create)
 
+				// 设备使用
 				group.POST("/glasses_use", glasses_use.NewApi().Create)
 
-				// 其实不需要这个接口
 				group.GET("/glasses_use/one", glasses_use.NewApi().One)
 			})
 

@@ -35,3 +35,13 @@ type InfoReq struct {
 type InfoRes struct {
 	model.GlassesInfoRes
 }
+
+// 删除
+type DeleteReq struct {
+	g.Meta `path:"/glasses" method:"delete" tags:"设备管理" summary:"删除眼镜" description:"删除眼镜"`
+	model.GlassesDeleteReq
+}
+
+type DeleteRes struct {
+	model.Result
+}

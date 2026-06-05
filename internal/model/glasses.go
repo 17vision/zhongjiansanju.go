@@ -64,3 +64,7 @@ type GlassesInfoRes struct {
 	OnlineCount   int `json:"onlineCount" dc:"在线设备数"`
 	LowpowerCount int `json:"lowpowerCount" dc:"低电量设备数"`
 }
+
+type GlassesDeleteReq struct {
+	Ids []uint64 `json:"ids" v:"required#设备ID不能为空" dc:"设备ID列表"`
+}

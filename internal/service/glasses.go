@@ -15,6 +15,7 @@ type (
 		UpdateStatus(ctx context.Context, ids []int64, status uint) (err error)
 		UpdateUseStatus(ctx context.Context, ids []int64, useStatus uint) (err error)
 		One(ctx context.Context, id int64, status uint) (glasses *model.Glasses, err error)
+		Delete(ctx context.Context, req model.GlassesDeleteReq) (res *model.Result, err error)
 		List(ctx context.Context, req model.GlassesListReq) (res *model.GlassesListRes, err error)
 		Create(ctx context.Context, req *model.GlassesCreateReq) (res *model.GlassesCreateRes, err error)
 	}

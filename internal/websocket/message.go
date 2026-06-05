@@ -32,6 +32,7 @@ type MovedData struct {
 // RoomUsersData 房间用户列表消息体
 type RoomUsersData struct {
 	RoomId string  `json:"roomId"` // 房间ID
+	User   User    `json:"user"`   // 当前用户
 	Users  []*User `json:"users"`  // 用户列表
 }
 
@@ -129,7 +130,7 @@ func CreateOrJoinMapHandler(ctx context.Context, manager *Manager, client *Clien
 	})
 
 	// 把房间里的人推送给自己
-	manager.pushRoomUserList(ctx, room, client.User.Id)
+	manager.pushRoomUserList(ctx, room, *client.User)
 
 	// 广播消息，有人进来了
 	manager.broadcastUserJoined(ctx, room, client.User)

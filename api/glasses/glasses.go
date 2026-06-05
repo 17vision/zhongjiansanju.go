@@ -15,6 +15,7 @@ type IGlassesAdmin interface {
 	Create(ctx context.Context, req *admin.CreateReq) (res *admin.CreateRes, err error)
 	List(ctx context.Context, req *admin.ListReq) (res *admin.ListRes, err error)
 	Info(ctx context.Context, req *admin.InfoReq) (res *admin.InfoRes, err error)
+	Delete(ctx context.Context, req *admin.DeleteReq) (res *admin.DeleteRes, err error)
 }
 
 type IGlassesApi interface {
