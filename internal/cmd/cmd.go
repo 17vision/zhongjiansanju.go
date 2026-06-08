@@ -7,6 +7,7 @@ import (
 	"github.com/gogf/gf/v2/net/ghttp"
 	"github.com/gogf/gf/v2/os/gcmd"
 
+	"zjsj/internal/controller/game_record"
 	"zjsj/internal/controller/glasses"
 	"zjsj/internal/controller/glasses_use"
 	"zjsj/internal/controller/user"
@@ -50,6 +51,13 @@ var (
 						group.POST("/glasses", glasses.NewAdmin().Create)
 
 						group.DELETE("/glasses", glasses.NewAdmin().Delete)
+
+						// 统计
+						group.GET("/game_records/info", game_record.NewAdmin().Info)
+
+						group.GET("/game_records/timeperiod_count", game_record.NewAdmin().TimeperiodCount)
+
+						group.GET("/game_records", game_record.NewAdmin().List)
 					})
 				})
 			})

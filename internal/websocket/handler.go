@@ -78,6 +78,12 @@ func websocketHandler(r *ghttp.Request) {
 	}
 
 	g.Log().Info(ctx, "用户进入：", gjson.MustEncodeString(user))
+
+	if user.Extend.ConnectIp == "218.79.62.44" {
+		g.Log().Error(ctx, "这个ip 不给连")
+		return
+	}
+
 	if user.Type == TypeUser {
 		res, err := service.GlassesUse().One(ctx, user.EquipmentSn)
 
