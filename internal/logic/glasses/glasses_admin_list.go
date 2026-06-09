@@ -28,8 +28,10 @@ func (s *sGlasses) List(ctx context.Context, req model.GlassesListReq) (res *mod
 	}
 
 	statusArr := []string{"", "在线", "离线"}
+	useStatusArr := []string{"", "待使用", "使用中"}
 	for _, item := range data {
 		item.StatusStr = statusArr[item.Status]
+		item.UseStatusStr = useStatusArr[item.UseStatus]
 	}
 
 	res = &model.GlassesListRes{}
