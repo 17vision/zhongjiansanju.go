@@ -58,6 +58,8 @@ var (
 						group.GET("/game_records/timeperiod_count", game_record.NewAdmin().TimeperiodCount)
 
 						group.GET("/game_records", game_record.NewAdmin().List)
+
+						group.POST("/game_records/export", game_record.NewAdmin().Export)
 					})
 				})
 			})

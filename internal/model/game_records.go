@@ -73,3 +73,12 @@ type GameRecordListRes struct {
 	PaginateRes
 	Data []*GameRecord `json:"data"`
 }
+
+type GameRecordExportReq struct {
+	StartAt *gtime.Time `json:"startAt" dc:"开始时间"`
+	EndAt   *gtime.Time `json:"endAt" dc:"结束时间"`
+}
+
+type GameRecordExportRes struct {
+	Total int `json:"total"`
+}

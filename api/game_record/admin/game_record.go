@@ -22,10 +22,22 @@ type TimeperiodCountReq struct {
 type TimeperiodCountRes struct {
 	model.GameRecordTimeperiodCountRes
 }
+
 type ListReq struct {
 	g.Meta `path:"/game_records" method:"get" tags:"游戏记录" summary:"获取游戏记录列表" description:"获取游戏记录列表"`
 	model.GameRecordListReq
 }
+
 type ListRes struct {
 	model.GameRecordListRes
+}
+
+// 导出数据
+type ExportReq struct {
+	g.Meta `path:"/game_records/export" method:"post" tags:"游戏记录" summary:"导出游戏记录" description:"导出游戏记录"`
+	model.GameRecordExportReq
+}
+
+type ExportRes struct {
+	model.GameRecordExportRes
 }

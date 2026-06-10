@@ -12,6 +12,7 @@ import (
 
 type (
 	IGameRecords interface {
+		Export(ctx context.Context, req model.GameRecordExportReq) (res model.GameRecordExportRes, err error)
 		Info(ctx context.Context) (res *model.GameRecordInfoRes, err error)
 		List(ctx context.Context, req model.GameRecordListReq) (res *model.GameRecordListRes, err error)
 		TimeperiodCount(ctx context.Context, req model.GameRecordTimeperiodCountReq) (res *model.GameRecordTimeperiodCountRes, err error)

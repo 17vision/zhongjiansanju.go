@@ -14,4 +14,5 @@ type IGameRecordAdmin interface {
 	Info(ctx context.Context, req *admin.InfoReq) (res *admin.InfoRes, err error)
 	TimeperiodCount(ctx context.Context, req *admin.TimeperiodCountReq) (res *admin.TimeperiodCountRes, err error)
 	List(ctx context.Context, req *admin.ListReq) (res *admin.ListRes, err error)
+	Export(ctx context.Context, req *admin.ExportReq) (res *admin.ExportRes, err error)
 }
