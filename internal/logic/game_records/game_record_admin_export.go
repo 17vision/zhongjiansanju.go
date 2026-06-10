@@ -50,6 +50,28 @@ func (s *sGameRecords) Export(ctx context.Context, req model.GameRecordExportReq
 		return res, fmt.Errorf("创建导出文件失败")
 	}
 
+	// =============================================
+	// ✅ 新增：设置每一列的固定宽度（流式导出最佳方案）
+	// =============================================
+	// 列顺序：A B C D E F G H I
+	// 对应表头：ID 设备名称 设备Sn码 用户昵称 体验模型 连接时间 开始时间 结束时间 体验时长
+	colWidths := []float64{
+		8,  // A列：ID
+		20, // B列：设备名称
+		25, // C列：设备Sn码
+		15, // D列：用户昵称
+		15, // E列：体验模型
+		20, // F列：连接时间
+		20, // G列：开始时间
+		20, // H列：结束时间
+		12, // I列：体验时长
+	}
+
+	for i, width := range colWidths {
+		colName, _ := excelize.ColumnNumberToName(i + 1) // i从0开始，列从1开始
+		f.SetColWidth(sheetName, colName, colName, width)
+	}
+
 	// 资源释放
 	defer func() {
 		if err := sw.Flush(); err != nil {
