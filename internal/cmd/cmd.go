@@ -22,12 +22,20 @@ var (
 		Brief: "start http server",
 		Func: func(ctx context.Context, parser *gcmd.Parser) (err error) {
 			s := g.Server()
+
+			// s.SetServerRoot("./root")
+
+			// s.BindStatusHandler(404, func(r *ghttp.Request) {
+			// 	r.Response.RedirectTo("/")
+			// })
+
 			s.Group("/", func(group *ghttp.RouterGroup) {
 				group.Middleware(service.Middleware().CORS)
 				group.Middleware(service.Middleware().GateKeeper)
 				group.Middleware(service.Middleware().Response)
 
 				group.Group("/admin", func(group *ghttp.RouterGroup) {
+
 					group.POST("/login", user.NewAdmin().Login)
 
 					group.Group("/", func(group *ghttp.RouterGroup) {
