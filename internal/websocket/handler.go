@@ -1,6 +1,7 @@
 package websocket
 
 import (
+	"fmt"
 	"net/http"
 	"time"
 	"zjsj/internal/pkg/utils"
@@ -70,28 +71,18 @@ func websocketHandler(r *ghttp.Request) {
 	}
 
 	// 收到的第一个消息必须是用户信息
-	// var user User
-	// if err = conn.ReadJSON(&user); err != nil {
-	// 	g.Log().Error(ctx, "read user err:", err)
-	// 	return
-	// }
 	var user User
-	var temp = manager.getUser(string(rune(manager.lastId)))
-	if temp != nil {
-		user = User{
-			Id:       temp.Id,
-			Nickname: temp.Nickname,
-			Gender:   temp.Gender,
-			Avatar:   temp.Avatar,
-			Extend: &UserExtend{
-				IsReady: false,
-			},
-		}
-	} else {
-		r.Response.WriteStatusExit(http.StatusInternalServerError, "getUser failed")
-		conn.Close()
+	if err = conn.ReadJSON(&user); err != nil {
+		g.Log().Error(ctx, "read user err:", err)
 		return
 	}
+
+	user.Extend = &UserExtend{
+		IsReady: false,
+	}
+	user.Id = manager.lastId
+	user.Avatar = fmt.Sprintf("https://api.dicebear.com/7.x/avataaars/svg?seed=%s", user.Nickname)
+	manager.lastId++
 
 	// 断开处理
 	conn.SetCloseHandler(func(code int, text string) error {
@@ -124,9 +115,8 @@ func websocketHandler(r *ghttp.Request) {
 }
 
 func userHandler(r *ghttp.Request) {
-	device_id := r.Get("device_id").String()
-
-	if device_id == "" {
+	device_id := r.Get("device_id").Uint64()
+	if device_id == 0 {
 		r.Response.WriteHeader(http.StatusForbidden)
 		r.Response.WriteJson(map[string]any{"message": "请传设备 id"})
 		return
@@ -134,8 +124,13 @@ func userHandler(r *ghttp.Request) {
 
 	user := manager.getUser(device_id)
 
-	r.Response.WriteHeader(http.StatusOK)
+	if user == nil {
+		r.Response.WriteHeader(http.StatusForbidden)
+		r.Response.WriteJson(map[string]any{"message": "用户不存在"})
+		return
+	}
 
+	r.Response.WriteHeader(http.StatusOK)
 	r.Response.WriteJson(user)
 }
 

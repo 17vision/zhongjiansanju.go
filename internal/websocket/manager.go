@@ -7,7 +7,6 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
-	"zjsj/internal/pkg/utils"
 
 	"github.com/gogf/gf/v2/encoding/gjson"
 	"github.com/gogf/gf/v2/errors/gerror"
@@ -81,44 +80,21 @@ func NewManager(lobbyCap, mapCap int) *Manager {
 		lobbyCapacity: lobbyCap,
 		mapCapacity:   mapCap,
 		liveUsers:     make(map[string]*User),
-		lastId:        0,
+		lastId:        1,
 		posJson:       posJson,
 	}
 }
 
-func (manager *Manager) getUser(device_id string) *User {
-	user, had := manager.liveUsers[device_id]
-	if had && user != nil {
-		return user
-	}
-
+func (manager *Manager) getUser(id uint64) *User {
 	manager.mu.Lock()
-
-	var getName func() utils.NameResult
-	getName = func() utils.NameResult {
-		n := utils.RandomName()
-
-		for _, u := range manager.liveUsers {
-			if u != nil && u.Nickname == n.Name {
-				return getName()
-			}
-		}
-		return n
-	}
-
-	name := getName()
-
-	user = &User{
-		Id:       manager.lastId + 1,
-		Nickname: name.Name,
-		Gender:   Gender(name.Gender),
-		Avatar:   name.Avatar,
-	}
-
-	manager.liveUsers[device_id] = user
-	manager.lastId++
+	client, ok := manager.clients[id]
 	manager.mu.Unlock()
-	return user
+
+	if !ok || client == nil {
+		return nil
+	}
+
+	return client.User
 }
 
 // 创建一个 Client
@@ -295,7 +271,7 @@ func (manager *Manager) createOrJoinMap(client *Client, mapBase string) *Room {
 			room.Clients[client.User.Id] = client
 
 			// 分配名字
-			manager.assignNames(room, client.User)
+			// manager.assignNames(room, client.User)
 			return room
 		}
 	}
@@ -316,7 +292,7 @@ func (manager *Manager) createOrJoinMap(client *Client, mapBase string) *Room {
 	}
 
 	// 分配名字
-	manager.assignNames(room, client.User)
+	// manager.assignNames(room, client.User)
 	return room
 }
 
@@ -365,9 +341,9 @@ func (manager *Manager) leftLobbyOrMap(ctx context.Context, client *Client) {
 	manager.mu.Unlock()
 
 	if room != nil {
-		if room.Type == RoomTypeMap {
-			manager.recycleNames(room, client.User.Nickname)
-		}
+		// if room.Type == RoomTypeMap {
+		// 	manager.recycleNames(room, client.User.Nickname)
+		// }
 
 		manager.broadcastUserLeft(ctx, room, client.User)
 
@@ -626,9 +602,9 @@ func (manager *Manager) removeClient(ctx context.Context, userId uint64) {
 
 	if room != nil {
 		// 回收名字
-		if room.Type == RoomTypeMap {
-			manager.recycleNames(room, client.User.Nickname)
-		}
+		// if room.Type == RoomTypeMap {
+		// 	manager.recycleNames(room, client.User.Nickname)
+		// }
 		manager.broadcastUserLeft(ctx, room, client.User)
 
 		if len(room.Clients) == 0 {
@@ -636,9 +612,9 @@ func (manager *Manager) removeClient(ctx context.Context, userId uint64) {
 		}
 	}
 
-	// if len(manager.clients) == 0 {
-	// 	manager.lastId = 0
-	// }
+	if manager.lastId > 10000 && len(manager.clients) == 0 {
+		manager.lastId = 1
+	}
 }
 
 func (manager *Manager) destroyRoom() {
