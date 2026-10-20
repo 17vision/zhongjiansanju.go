@@ -44,6 +44,9 @@ var mapSeq int64
 var lobbySeq int64
 var recordHost string = "https://game.17vision.com"
 
+// 游戏服务器 IP 缓存文件路径：运行时由连接动态获取，落盘以便重启后兜底
+var ipCachePath = gfile.Join(gfile.Pwd(), "storage/config", "ip_cache.json")
+
 func NewManager(lobbyCap, mapCap int) *Manager {
 	var gameConfig *GameConfig
 	gameConfigPath := gfile.Join(gfile.Pwd(), "storage/config", "game.json")
@@ -61,6 +64,10 @@ func NewManager(lobbyCap, mapCap int) *Manager {
 		recordHost = gameConfig.RecordHost
 	}
 
+	// ip 不再从配置文件读取，改为运行时由游戏服务器客户端连接动态获取；
+	// 启动时先用上次缓存的 ip 兜底（若还没有客户端连过，则为空）
+	gameConfig.Ip = loadIpCache()
+
 	return &Manager{
 		rooms:             make(map[RoomType][]*Room),
 		clients:           make(map[uint64]*Client),
@@ -68,6 +75,62 @@ func NewManager(lobbyCap, mapCap int) *Manager {
 		userLocks:         sync.Map{},
 		gameConfig:        gameConfig,
 	}
+}
+
+// 读取 IP 缓存文件，返回上次记录的游戏服务器 IP，不存在或解析异常时返回空串
+func loadIpCache() string {
+	content := gfile.GetContents(ipCachePath)
+	if content == "" {
+		return ""
+	}
+
+	var data struct {
+		Ip string `json:"ip"`
+	}
+	if err := gjson.Unmarshal([]byte(content), &data); err != nil {
+		return ""
+	}
+	return data.Ip
+}
+
+// 将游戏服务器 IP 写入缓存文件
+func (manager *Manager) saveIpCache(ctx context.Context, ip string) {
+	content := gjson.MustEncodeString(map[string]any{
+		"ip":        ip,
+		"updatedAt": time.Now().Unix(),
+	})
+
+	if err := gfile.PutContents(ipCachePath, content); err != nil {
+		g.Log("test").Async().Errorf(ctx, "写入 IP 缓存失败: %v", err)
+		return
+	}
+	g.Log("test").Async().Infof(ctx, "已缓存游戏服务器 IP: %s", ip)
+}
+
+// 游戏服务器客户端连接时更新 IP：与当前值不同才更新，并写入缓存
+func (manager *Manager) updateGameServerIp(ctx context.Context, ip string) {
+	if ip == "" {
+		return
+	}
+
+	manager.mu.Lock()
+	if manager.gameConfig.Ip == ip {
+		manager.mu.Unlock()
+		return
+	}
+	old := manager.gameConfig.Ip
+	manager.gameConfig.Ip = ip
+	manager.mu.Unlock()
+
+	g.Log("test").Async().Infof(ctx, "游戏服务器 IP 变更: %q -> %q", old, ip)
+	manager.saveIpCache(ctx, ip)
+}
+
+// 读取当前游戏服务器 IP（并发安全）
+func (manager *Manager) gameServerIp() string {
+	manager.mu.RLock()
+	defer manager.mu.RUnlock()
+	return manager.gameConfig.Ip
 }
 
 // 创建一个 Client
@@ -591,7 +654,7 @@ func (manager *Manager) pushRoomUserList(ctx context.Context, room *Room, user U
 func (manager *Manager) broadcastUserJoined(ctx context.Context, room *Room, user *User) {
 	manager.broadcastAsync(ctx, room, WSMessage{
 		Type: MsgTypeUserJoined,
-		Data: UserEventData{RoomId: room.Id, UserId: user.Id, Ip: manager.gameConfig.Ip},
+		Data: UserEventData{RoomId: room.Id, UserId: user.Id, Ip: manager.gameServerIp()},
 	}, user)
 }
 

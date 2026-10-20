@@ -134,6 +134,8 @@ func websocketHandler(r *ghttp.Request) {
 		room = manager.createOrJoinLobby(client)
 	} else {
 		manager.addGameClient(client)
+		// 游戏服务器客户端连上，用其真实 IP 动态更新（变化才更新并写缓存）
+		manager.updateGameServerIp(ctx, user.Extend.ConnectIp)
 	}
 
 	// 读写双泵
@@ -152,7 +154,7 @@ func websocketHandler(r *ghttp.Request) {
 	} else {
 		manager.unicastAsync(ctx, client, WSMessage{
 			Type: MsgTypeUserJoined,
-			Data: UserEventData{UserId: user.Id, Ip: manager.gameConfig.Ip},
+			Data: UserEventData{UserId: user.Id, Ip: manager.gameServerIp()},
 		})
 
 		// 服务器进来，给未进入房间的用户发送命令
@@ -270,7 +272,7 @@ func getRoomsHandler(r *ghttp.Request) {
 		outGameServerClient = append(outGameServerClient, GameServerClient{
 			Id:       item.User.Id,
 			Port:     item.User.Port,
-			Ip:       manager.gameConfig.Ip,
+			Ip:       manager.gameServerIp(),
 			IsServer: item.User.Extend.IsServer,
 			RoomId:   item.RoomId,
 		})
