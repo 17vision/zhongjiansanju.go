@@ -14,9 +14,11 @@ import (
 )
 
 var manager *Manager
+var unityService *UnityService
 
 func init() {
 	manager = NewManager(50, 8)
+	unityService = NewUnityService()
 }
 
 func BindRouters(s *ghttp.Server) {
@@ -66,6 +68,12 @@ func websocketHandler(r *ghttp.Request) {
 	// 收到的第一个消息必须是用户信息
 	var user User
 	if err = conn.ReadJSON(&user); err != nil {
+		g.Log().Error(ctx, "read user err:", err)
+		return
+	}
+
+	user.Allocation, err = unityService.GetAllocation(ctx)
+	if err != nil {
 		g.Log().Error(ctx, "read user err:", err)
 		return
 	}

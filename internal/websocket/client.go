@@ -65,6 +65,7 @@ type User struct {
 	Gender       Gender      `json:"gender"`
 	Avatar       string      `json:"avatar"`
 	Extend       *UserExtend `json:"extend"`
+	Allocation   *Allocation `json:"allocation"`
 	Port         int         `json:"port"`
 	GlassesUseId uint64      `json:"glassesUseId" dc:"使用的模型 id"`
 }
