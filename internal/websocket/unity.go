@@ -39,7 +39,8 @@ type UnityCloudConfig struct {
 }
 
 type UnityService struct {
-	mu sync.RWMutex
+	mu     sync.RWMutex
+	getIng bool
 }
 
 var unityCloudConfig = &UnityCloudConfig{}
@@ -58,21 +59,47 @@ func NewUnityService() *UnityService {
 	return &UnityService{}
 }
 
+func (s *UnityService) GetStatus() bool {
+	return s.getIng
+}
+
 func (s *UnityService) GetAllocation(ctx context.Context) (*Allocation, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.getIng = true
+
 	v, err := gcache.Get(ctx, allocationKey)
 	if err != nil {
+		s.getIng = false
 		return nil, gerror.New("读取缓存错误:" + err.Error())
 	}
 
 	var alloc *Allocation
 	if v.IsNil() {
+		alloc, err = getAllocation(ctx)
+		if err != nil {
+			g.Log("test").Async().Info(ctx, "无缓存，先查询是否存在服务，如果存在就不需要创建，但是报错:"+err.Error())
+		}
+
+		// 如果服务器还存在，就直接返回了。就是缓存和服务器的时间不一致引起的
+		if alloc != nil && alloc.Ip != "" {
+			s.getIng = false
+			return alloc, nil
+		}
+
 		alloc = buildAllocation(ctx)
+		s.getIng = false
 		return alloc, nil
 	}
 	err = v.Scan(&alloc)
 	if err != nil {
+		s.getIng = false
 		return nil, gerror.Newf("缓存数据转 Allocation 失败:%s", err.Error())
 	}
+	s.getIng = false
+
+	g.Log("text").Async().Info(ctx, "从缓存读取创建的服务器信息")
 	return alloc, nil
 }
 
@@ -92,7 +119,7 @@ func buildAllocation(ctx context.Context) *Allocation {
 
 	v, err := curl.NewHttpClient().Post(ctx, url, data, headers)
 	if err != nil {
-		g.Log("test").Async().Errorf(ctx, "创建 Allocation 失败:%s", err.Error())
+		g.Log("test").Async().Errorf(ctx, "创建 Allocation（%s） 失败:%s", unityCloudConfig.Uuid, err.Error())
 		return nil
 	}
 
@@ -102,9 +129,11 @@ func buildAllocation(ctx context.Context) *Allocation {
 	var result = &Result{}
 	err = gjson.Unmarshal([]byte(v), result)
 	if err != nil {
-		g.Log("test").Async().Errorf(ctx, "Create Allocation 数据解析失败:%s", err.Error())
+		g.Log("test").Async().Errorf(ctx, "解析 Allocation（%s） 失败:%s", unityCloudConfig.Uuid, err.Error())
 		return nil
 	}
+
+	g.Log("test").Async().Info(ctx, "服务已创建，等待创建成功\n\n")
 
 	if result.Allocation.Ip == "" {
 		ticker := time.NewTicker(2 * time.Second)
@@ -115,7 +144,7 @@ func buildAllocation(ctx context.Context) *Allocation {
 			pollCount++
 			alloc, err := getAllocation(ctx)
 			if err != nil {
-				g.Log("test").Async().Error(ctx, "Create Allocation 失败")
+				g.Log("test").Async().Info(ctx, "获取 Create Allocation 失败")
 				break
 			}
 
@@ -124,8 +153,8 @@ func buildAllocation(ctx context.Context) *Allocation {
 				break
 			}
 
-			if pollCount > 20 {
-				g.Log("test").Async().Error(ctx, "尝试获取 Allocation 超时， 用时 %d 秒", 20*2)
+			if pollCount > 30 {
+				g.Log("test").Async().Errorf(ctx, "尝试获取 Allocation（%s） 超时， 用时 %d 秒", unityCloudConfig.Uuid, 30*2)
 				break
 			}
 
@@ -155,7 +184,8 @@ func getAllocation(ctx context.Context) (*Allocation, error) {
 
 	v, err := curl.NewHttpClient().Get(ctx, url, nil, headers)
 	if err != nil {
-		g.Log("test").Async().Errorf(ctx, "获取 Allocation 失败:%s", err.Error())
+		g.Log("test").Async().Infof(ctx, "请求 url: %s", url)
+		g.Log("test").Async().Infof(ctx, "获取 Allocation（%s） 失败:%s", unityCloudConfig.Uuid, err.Error())
 		return nil, err
 	}
 
@@ -173,6 +203,7 @@ func getAllocation(ctx context.Context) (*Allocation, error) {
 		g.Log("test").Async().Info(ctx, "服务创建中，请等待")
 		return nil, nil
 	}
+	g.Log("test").Async().Info(ctx, "服务已创建，请使用")
 	return result.Allocation, nil
 }
 

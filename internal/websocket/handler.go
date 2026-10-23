@@ -69,12 +69,25 @@ func websocketHandler(r *ghttp.Request) {
 	var user User
 	if err = conn.ReadJSON(&user); err != nil {
 		g.Log().Error(ctx, "read user err:", err)
+		r.Response.WriteStatusExit(http.StatusInternalServerError, "用户数据错误"+err.Error())
+		return
+	}
+
+	if unityService.GetStatus() {
+		g.Log().Error(ctx, "服务器分配中，请稍后再连")
+		r.Response.WriteStatusExit(http.StatusInternalServerError, "服务器分配中，请稍后再连")
 		return
 	}
 
 	user.Allocation, err = unityService.GetAllocation(ctx)
 	if err != nil {
-		g.Log().Error(ctx, "read user err:", err)
+		g.Log().Error(ctx, "分配服务器失败:", err)
+		r.Response.WriteStatusExit(http.StatusInternalServerError, "分配服务器失败:"+err.Error())
+		return
+	}
+
+	if user.Allocation == nil {
+		r.Response.WriteStatusExit(http.StatusInternalServerError, "分配服务器失败")
 		return
 	}
 
