@@ -49,13 +49,18 @@ func (s *sGlassesUse) UpdateStatus(ctx context.Context, id int64, status uint) (
 			return gerror.New("使用设备不存在，请联系管理员")
 		}
 
-		if status != 2 {
+		if status == 2 {
 			_, err = dao.Glasses.Ctx(ctx).WherePri(glassesUses.GlassesId).Data(do.Glasses{
-				Status: 1,
+				UseStatus: 2,
 			}).Update()
-			if err != nil {
-				return err
-			}
+		} else {
+			_, err = dao.Glasses.Ctx(ctx).WherePri(glassesUses.GlassesId).Data(do.Glasses{
+				UseStatus: 1,
+			}).Update()
+		}
+
+		if err != nil {
+			return err
 		}
 		return nil
 	})
