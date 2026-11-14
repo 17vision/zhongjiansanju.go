@@ -1,6 +1,7 @@
 package websocket
 
 import (
+	"encoding/json"
 	"net"
 	"net/http"
 	"time"
@@ -21,6 +22,30 @@ func init() {
 	unityService = NewUnityService()
 }
 
+type AllocationCallbackReq struct {
+	// 外层主体（真正要用的）
+	Uuid            string   `json:"uuid"`
+	Ip              string   `json:"ip"`
+	GameServerPorts []string `json:"gameServerPorts"`
+	Status          string   `json:"status"` // allocated / failed
+	Msg             string   `json:"msg"`
+	UosAppId        string   `json:"uosAppId"`
+	ProfileId       string   `json:"profileId"`
+	RegionId        string   `json:"regionId"`
+
+	// 报文里附带的 description，可选加，平台好像只是冗余携带
+	Description struct {
+		Uuid            string   `json:"uuid"`
+		Ip              string   `json:"ip"`
+		GameServerPorts []string `json:"gameServerPorts"`
+		Status          string   `json:"status"`
+		Msg             string   `json:"msg"`
+		UosAppId        string   `json:"uosAppId"`
+		ProfileId       string   `json:"profileId"`
+		RegionId        string   `json:"regionId"`
+	} `json:"description"`
+}
+
 func BindRouters(s *ghttp.Server) {
 	s.SetOpenApiPath("")
 	s.SetSwaggerPath("")
@@ -37,9 +62,46 @@ func BindRouters(s *ghttp.Server) {
 		group.POST("/start", startHandler)
 
 		group.POST("/stop", stopHandler)
+
+		group.POST("/allocation/callback", allocationCallback)
 	})
 
 	s.BindHandler("/ws/connect", websocketHandler)
+}
+
+func allocationCallback(r *ghttp.Request) {
+	var req AllocationCallbackReq
+	body := r.GetBody()
+	if err := json.Unmarshal(body, &req); err != nil {
+		g.Log().Errorf(r.GetCtx(), "parse json failed, err:%v, raw:%s", err, string(body))
+		r.Response.WriteJson(g.Map{
+			"code": 400,
+			"msg":  "parse json failed: " + err.Error(),
+		})
+		return
+	}
+
+	// 业务逻辑不变
+	allocUUID := req.Uuid
+	status := req.Status
+	ip := req.Ip
+	ports := req.GameServerPorts
+
+	g.Log().Infof(r.GetCtx(), "alloc callback, uuid=%s, status=%s, ip=%s, ports=%+v", allocUUID, status, ip, ports)
+
+	switch status {
+	case "allocated":
+		// 更新分配成功
+	case "failed":
+		// 更新失败，记录 req.Msg
+	default:
+		g.Log().Warningf(r.GetCtx(), "unknown allocation status: %s", status)
+	}
+
+	r.Response.WriteJson(g.Map{
+		"code": 0,
+		"msg":  "ok",
+	})
 }
 
 func websocketHandler(r *ghttp.Request) {
@@ -68,27 +130,53 @@ func websocketHandler(r *ghttp.Request) {
 	// 收到的第一个消息必须是用户信息
 	var user User
 	if err = conn.ReadJSON(&user); err != nil {
-		g.Log().Error(ctx, "read user err:", err)
+		g.Log().Error(ctx, "Read user err:", err)
 		r.Response.WriteStatusExit(http.StatusInternalServerError, "用户数据错误"+err.Error())
 		return
 	}
 
-	if unityService.GetStatus() {
-		g.Log().Error(ctx, "服务器分配中，请稍后再连")
-		r.Response.WriteStatusExit(http.StatusInternalServerError, "服务器分配中，请稍后再连")
-		return
-	}
+	// 普通客户端用户激活
+	if user.Type == TypeUser {
+		if unityService.GetStatus() {
+			g.Log().Error(ctx, "服务器分配中，请稍后再连")
+			r.Response.WriteStatusExit(http.StatusInternalServerError, "服务器分配中，请稍后再连")
+			return
+		}
 
-	user.Allocation, err = unityService.GetAllocation(ctx)
-	if err != nil {
-		g.Log().Error(ctx, "分配服务器失败:", err)
-		r.Response.WriteStatusExit(http.StatusInternalServerError, "分配服务器失败:"+err.Error())
-		return
-	}
+		allocation, err := unityService.GetAllocation(ctx)
+		if err != nil {
+			g.Log().Error(ctx, "分配服务器失败[1]:", err)
+			r.Response.WriteStatusExit(http.StatusInternalServerError, "分配服务器失败:"+err.Error())
+			return
+		}
 
-	if user.Allocation == nil {
-		r.Response.WriteStatusExit(http.StatusInternalServerError, "分配服务器失败")
-		return
+		if allocation == nil {
+			g.Log().Error(ctx, "分配服务器失败[2]:", err)
+			r.Response.WriteStatusExit(http.StatusInternalServerError, "分配服务器失败")
+			return
+		}
+
+		if len(manager.gameServerClients) == 0 {
+			g.Log().Error(ctx, "等待云服务器连接")
+			conn.Close()
+			r.Response.WriteStatusExit(http.StatusInternalServerError, "等待云服务器连接")
+			return
+		}
+		user.Allocation = allocation
+	} else {
+		allocation, err := unityService.GetAllocation(ctx)
+		if err != nil {
+			g.Log().Error(ctx, "[2]分配服务器失败[1]:", err)
+			r.Response.WriteStatusExit(http.StatusInternalServerError, "分配服务器失败:"+err.Error())
+			return
+		}
+
+		if allocation == nil {
+			g.Log().Error(ctx, "[2]分配服务器失败[2]:", err)
+			r.Response.WriteStatusExit(http.StatusInternalServerError, "分配服务器失败")
+			return
+		}
+		user.Allocation = allocation
 	}
 
 	user.Extend = &UserExtend{
@@ -99,11 +187,6 @@ func websocketHandler(r *ghttp.Request) {
 	}
 
 	g.Log().Info(ctx, "用户进入：", gjson.MustEncodeString(user))
-
-	if user.Extend.ConnectIp == "218.79.62.44" {
-		g.Log().Error(ctx, "这个ip 不给连")
-		return
-	}
 
 	if user.Type == TypeUser {
 		res, err := service.GlassesUse().One(ctx, user.EquipmentSn)
@@ -131,6 +214,7 @@ func websocketHandler(r *ghttp.Request) {
 		} else {
 			g.Log().Info(ctx, "更新设备状态为 2 成功")
 		}
+		// user.Nickname = GetName()
 	}
 
 	// 断开处理
@@ -155,8 +239,9 @@ func websocketHandler(r *ghttp.Request) {
 		room = manager.createOrJoinLobby(client)
 	} else {
 		manager.addGameClient(client)
+
 		// 游戏服务器客户端连上，用其真实 IP 动态更新（变化才更新并写缓存）
-		manager.updateGameServerIp(ctx, user.Extend.ConnectIp)
+		manager.updateGameServerIp(ctx, user.Allocation.Ip)
 	}
 
 	// 读写双泵

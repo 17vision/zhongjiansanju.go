@@ -6,10 +6,10 @@ import (
 	"zjsj/internal/model"
 	"zjsj/internal/model/do"
 	"zjsj/internal/model/entity"
-	"zjsj/internal/service"
 
+	"github.com/gogf/gf/v2/database/gdb"
 	"github.com/gogf/gf/v2/errors/gerror"
-	"github.com/gogf/gf/v2/os/gtime"
+	"github.com/gogf/gf/v2/frame/g"
 	"github.com/gogf/gf/v2/util/gconv"
 )
 
@@ -20,39 +20,62 @@ func (s *sGlassesUse) Create(ctx context.Context, req *model.GlassesUseCreateReq
 	}
 	data.Status = 1
 
-	columns := dao.GlassesUses.Columns()
-
-	var glassesUse *entity.GlassesUses
-	err = dao.GlassesUses.Ctx(ctx).Where(do.GlassesUses{
-		GlassesId: req.GlassesId,
-		Status:    1,
-	}).OrderDesc(columns.Id).Scan(&glassesUse)
-
-	if err != nil {
-		return nil, gerror.Wrap(err, "获取数据失败")
-	}
-
 	var id int64
-	if glassesUse != nil {
-		_, err = dao.GlassesUses.Ctx(ctx).Where(do.GlassesUses{
-			Id: glassesUse.Id,
-		}).Data(data).Update()
+	err = g.DB().Transaction(ctx, func(ctx context.Context, tx gdb.TX) error {
+		var glassesUse *entity.GlassesUses
+		err := dao.GlassesUses.Ctx(ctx).
+			Where(do.GlassesUses{
+				GlassesId: req.GlassesId,
+				Status:    1,
+			}).
+			OrderDesc(dao.GlassesUses.Columns().Id).
+			LockUpdate(). // 排他悲观锁
+			Scan(&glassesUse)
+		if err != nil {
+			return gerror.Wrap(err, "查询在用记录失败")
+		}
 
-		id = int64(glassesUse.Id)
-	} else {
-		id, err = dao.GlassesUses.Ctx(ctx).Data(data).InsertAndGetId()
-	}
+		var innerErr error
+		if glassesUse != nil {
+			resUpdate, innerErr := dao.GlassesUses.Ctx(ctx).
+				WherePri(glassesUse.Id).
+				Data(data).
+				Update()
+			if innerErr != nil {
+				return gerror.Wrap(innerErr, "更新在用记录失败")
+			}
+			affected, innerErr := resUpdate.RowsAffected()
+			if innerErr != nil {
+				return innerErr
+			}
+			if affected == 0 {
+				return gerror.New("在用记录已不存在")
+			}
 
+			id = int64(glassesUse.Id)
+		} else {
+			id, innerErr = dao.GlassesUses.Ctx(ctx).Data(data).InsertAndGetId()
+			if innerErr != nil {
+				return gerror.Wrap(innerErr, "新增在用记录失败")
+			}
+		}
+
+		// 同事务内更新眼镜状态，不要调用外层service
+		_, innerErr = dao.Glasses.Ctx(ctx).
+			WherePri(req.GlassesId).
+			Data(do.Glasses{Status: 2}).
+			Update()
+		if innerErr != nil {
+			return gerror.Wrap(innerErr, "更新眼镜状态失败")
+		}
+		return nil
+	})
 	if err != nil {
-		return nil, gerror.Wrap(err, "提交数据失败")
+		return nil, err
 	}
-
-	// 将设备状置为 2
-	service.Glasses().UpdateUseStatus(ctx, []int64{req.GlassesId}, 2)
 
 	res = &model.GlassesUseCreateRes{
-		Id:        gconv.Uint64(id),
-		CreatedAt: gtime.Now().Local(),
+		Id: gconv.Uint64(id),
 	}
-	return
+	return res, nil
 }

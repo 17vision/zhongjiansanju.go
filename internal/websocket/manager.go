@@ -796,6 +796,8 @@ func (manager *Manager) broadcastAsync(ctx context.Context, room *Room, msg WSMe
 	}
 	manager.mu.RUnlock()
 
+	fmt.Println("broadcast type:", msg.Type)
+
 	for _, c := range clients {
 		if c.IsClosed() {
 			continue
@@ -817,6 +819,8 @@ func (manager *Manager) unicastAsync(ctx context.Context, c *Client, msg WSMessa
 	}
 
 	dataStr, _ := gjson.EncodeString(msg)
+
+	fmt.Println("unicast type:", msg.Type)
 
 	data := []byte(dataStr)
 	select {

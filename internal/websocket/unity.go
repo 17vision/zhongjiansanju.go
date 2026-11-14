@@ -26,6 +26,7 @@ type Allocation struct {
 	Ip              string            `json:"ip"`
 	GameServerPorts []*GameServerPort `json:"gameServerPorts"`
 	CreatedAt       string            `json:"createdAt"`
+	Status          string            `json:"status"`
 }
 
 type UnityCloudConfig struct {
@@ -55,7 +56,7 @@ func NewUnityService() *UnityService {
 	}
 	uuid := uuid.New().String()
 	unityCloudConfig.Uuid = uuid
-	unityCloudConfig.AllocationTTL = "1h"
+	unityCloudConfig.AllocationTTL = "20m"
 	return &UnityService{}
 }
 
@@ -83,12 +84,16 @@ func (s *UnityService) GetAllocation(ctx context.Context) (*Allocation, error) {
 		}
 
 		// 如果服务器还存在，就直接返回了。就是缓存和服务器的时间不一致引起的
-		if alloc != nil && alloc.Ip != "" {
+		if alloc != nil && alloc.Ip != "" && alloc.Status == "allocated" {
 			s.getIng = false
 			return alloc, nil
 		}
 
 		alloc = buildAllocation(ctx)
+		if alloc == nil {
+			alloc = buildAllocation(ctx)
+		}
+
 		s.getIng = false
 		return alloc, nil
 	}
@@ -103,13 +108,17 @@ func (s *UnityService) GetAllocation(ctx context.Context) (*Allocation, error) {
 	return alloc, nil
 }
 
+// 每次创建都会有一个新的 uuid
 func buildAllocation(ctx context.Context) *Allocation {
+	uuid := uuid.New().String()
+	unityCloudConfig.Uuid = uuid
+
 	url := fmt.Sprintf("https://multiverse.scaling.unity.cn/v1/allocation/games/%s/allocations", unityCloudConfig.AppId)
 	data := map[string]string{
-		"uuid":      unityCloudConfig.Uuid,
-		"profileId": unityCloudConfig.ProfileId,
-		"regionId":  unityCloudConfig.RegionId,
-		// "allocationTTL": unityCloudConfig.AllocationTTL,
+		"uuid":          unityCloudConfig.Uuid,
+		"profileId":     unityCloudConfig.ProfileId,
+		"regionId":      unityCloudConfig.RegionId,
+		"allocationTTL": unityCloudConfig.AllocationTTL,
 	}
 
 	headers := map[string]string{
@@ -148,12 +157,20 @@ func buildAllocation(ctx context.Context) *Allocation {
 				break
 			}
 
-			if alloc != nil && alloc.Ip != "" {
+			if alloc != nil && alloc.Ip != "" && alloc.Status == "allocated" {
 				result.Allocation = alloc
 				break
 			}
 
+			// 如果创建失败
+			if alloc != nil && alloc.Status == "failed" {
+				result.Allocation = nil
+				g.Log("test").Async().Info(ctx, "分配 Allocation 失败")
+				break
+			}
+
 			if pollCount > 30 {
+				result.Allocation = nil
 				g.Log("test").Async().Errorf(ctx, "尝试获取 Allocation（%s） 超时， 用时 %d 秒", unityCloudConfig.Uuid, 30*2)
 				break
 			}
@@ -167,7 +184,7 @@ func buildAllocation(ctx context.Context) *Allocation {
 		}
 	}
 
-	if result.Allocation.Ip != "" {
+	if result.Allocation != nil && result.Allocation.Ip != "" && result.Allocation.Status == "allocated" {
 		gcache.Set(ctx, allocationKey, result.Allocation, 20*time.Minute)
 	}
 
