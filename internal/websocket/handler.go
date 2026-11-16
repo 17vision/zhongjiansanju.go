@@ -249,9 +249,9 @@ func websocketHandler(r *ghttp.Request) {
 
 	g.Log().Info(ctx, "用户进入：", gjson.MustEncodeString(user))
 
-	// 断开处理
+	// 断开处理：记录 close code 便于区分对端主动关闭(1000/1001)与异常断开(1006)
 	conn.SetCloseHandler(func(code int, text string) error {
-		g.Log().Info(ctx, "WebSocket closed:", code, text)
+		g.Log("test").Async().Infof(ctx, "WebSocket closed: id=%d, type=%d, code=%d, text=%s", user.Id, user.Type, code, text)
 		manager.removeClient(ctx, user.Id)
 		return nil
 	})

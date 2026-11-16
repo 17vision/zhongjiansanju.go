@@ -148,7 +148,10 @@ func (c *Client) readPump(ctx context.Context, m *Manager) {
 	for {
 		_, msg, err := c.conn.ReadMessage()
 		if err != nil {
-			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
+			if c.User.Type == TypeGameServer {
+				// 游戏服务器断连留 Info 级日志，便于排查 Unity 侧崩溃/主动关闭
+				g.Log("test").Async().Infof(ctx, "游戏服务器读泵退出: id=%d, room=%s, err=%v", c.User.Id, c.RoomId, err)
+			} else if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
 				g.Log("test").Async().Debugf(ctx, "readPump err: %v", err)
 			}
 			break
@@ -225,7 +228,11 @@ func (c *Client) writePump(ctx context.Context) {
 			}
 			if err := c.conn.WriteMessage(websocket.TextMessage, msg); err != nil {
 				c.mu.Unlock()
-				g.Log("test").Async().Debugf(ctx, "[写入数据失败] | room:%s (%d) | error: %s", c.RoomId, c.User.Id, err.Error())
+				if c.User.Type == TypeGameServer {
+					g.Log("test").Async().Warningf(ctx, "游戏服务器写入失败: id=%d, room=%s, err=%v", c.User.Id, c.RoomId, err)
+				} else {
+					g.Log("test").Async().Debugf(ctx, "[写入数据失败] | room:%s (%d) | error: %s", c.RoomId, c.User.Id, err.Error())
+				}
 				return
 			}
 			c.mu.Unlock()

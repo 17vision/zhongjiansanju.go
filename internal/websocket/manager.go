@@ -509,16 +509,19 @@ func (manager *Manager) start(ctx context.Context, roomId string) bool {
 
 	g.Log("test").Async().Infof(ctx, "开始游戏, 房间 id = %s, 新状态 = %v", roomId, RoomStatusPlaying)
 
+	// 带 roomId/startTime 载荷：Data 为 nil 时 omitempty 会丢掉 data 字段，Unity 解析空 data 易崩
+	startData := map[string]any{"roomId": room.Id, "startTime": room.StartTime}
+
 	manager.broadcastAsync(ctx, room, WSMessage{
 		Type: MsgTypeStartGame,
-		Data: nil,
+		Data: startData,
 	}, nil)
 
 	// 通知游戏服务器开始游戏
 	if room.GameServerClient != nil {
 		manager.unicastAsync(ctx, room.GameServerClient, WSMessage{
 			Type: MsgTypeStartGame,
-			Data: nil,
+			Data: startData,
 		})
 
 		g.Log("test").Async().Infof(ctx, "开始游戏 给游戏客户端发消息。用户 id = %d, 端口 = %d, ", room.GameServerClient.User.Id, room.GameServerClient.User.Port)
@@ -595,15 +598,17 @@ func (manager *Manager) stop(ctx context.Context, roomId string) bool {
 
 	g.Log("test").Async().Infof(ctx, "结束游戏, 房间 id = %s, 新状态 = %v", roomId, RoomStatusStopped)
 
+	stopData := map[string]any{"roomId": room.Id}
+
 	manager.broadcastAsync(ctx, room, WSMessage{
 		Type: MsgTypeStopGame,
-		Data: nil,
+		Data: stopData,
 	}, nil)
 
 	if room.GameServerClient != nil {
 		manager.unicastAsync(ctx, room.GameServerClient, WSMessage{
 			Type: MsgTypeStopGame,
-			Data: nil,
+			Data: stopData,
 		})
 	}
 
