@@ -420,6 +420,7 @@ func getRoomsHandler(r *ghttp.Request) {
 		Id        uint64 `json:"id"`
 		Port      int    `json:"port"`
 		Ip        string `json:"ip"`
+		ConnectIp string `json:"connectIp"` // WS 连接来源 IP（可能是 NAT 出口 IP，仅排查用）
 		IsServer  bool   `json:"isServer"`
 		RoomId    string `json:"roomId"`
 		CreatedAt string `json:"createdAt"`
@@ -427,17 +428,41 @@ func getRoomsHandler(r *ghttp.Request) {
 
 	outGameServerClient := make([]GameServerClient, 0, len(manager.gameServerClients))
 	for _, item := range manager.gameServerClients {
-		// 用服务器自己的分配 ip，其次用 WS 连接来源 IP；不用全局缓存兜底，避免多服务器时显示串 IP
+		// ip 统一以平台分配记录为准，与 rooms[].allocation.ip 同口径：
+		// 1) 服务器自报的分配 uuid 对应的平台 ip
 		ip := ""
-		if item.User.Allocation != nil && item.User.Allocation.Ip != "" {
+		if item.User.Allocation != nil && item.User.Allocation.Uuid != "" {
+			if a := unityService.GetAllocation(item.User.Allocation.Uuid); a != nil {
+				ip = a.Ip
+			}
+		}
+		// 2) 已绑定房间：用该房间云服务器的 ip
+		if ip == "" && item.RoomId != "" {
+			manager.mu.RLock()
+			for _, r := range manager.rooms[RoomTypeMap] {
+				if r.Id == item.RoomId {
+					ip = r.Ip
+					break
+				}
+			}
+			manager.mu.RUnlock()
+		}
+		// 3) 都没有才用自报 ip / 连接来源 IP（可能是内网 IP 或 NAT 出口 IP）
+		connectIp := ""
+		if item.User.Extend != nil {
+			connectIp = item.User.Extend.ConnectIp
+		}
+		if ip == "" && item.User.Allocation != nil && item.User.Allocation.Ip != "" {
 			ip = item.User.Allocation.Ip
-		} else if item.User.Extend != nil {
-			ip = item.User.Extend.ConnectIp
+		}
+		if ip == "" {
+			ip = connectIp
 		}
 		outGameServerClient = append(outGameServerClient, GameServerClient{
 			Id:        item.User.Id,
 			Port:      item.User.Port,
 			Ip:        ip,
+			ConnectIp: connectIp,
 			IsServer:  item.User.Extend.IsServer,
 			RoomId:    item.RoomId,
 			CreatedAt: gtime.New(item.CreatedAt).Format("Y-m-d H:i:s"),
