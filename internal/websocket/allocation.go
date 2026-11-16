@@ -61,6 +61,7 @@ func (manager *Manager) CreateRoomWithServer(ctx context.Context, mapBase string
 		Capacity: manager.gameConfig.MapCapacity,
 		Clients:  make(map[uint64]*Client),
 		Status:   RoomStatusWating,
+		CreatedAt: time.Now().Unix(),
 	}
 	manager.rooms[RoomTypeMap] = append(manager.rooms[RoomTypeMap], room)
 	manager.mu.Unlock()

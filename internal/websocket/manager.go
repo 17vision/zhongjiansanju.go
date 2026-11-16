@@ -313,7 +313,7 @@ func (manager *Manager) createOrJoinLobby(client *Client) *Room {
 	// roomId := fmt.Sprintf("lobby-%d", len(manager.rooms[RoomTypeLobby])+1)
 	roomId := fmt.Sprintf("lobby-%d", atomic.AddInt64(&lobbySeq, 1))
 
-	room := &Room{Id: roomId, Name: "大厅", Type: RoomTypeLobby, Capacity: manager.gameConfig.LobbyCapacity, Clients: make(map[uint64]*Client)}
+	room := &Room{Id: roomId, Name: "大厅", Type: RoomTypeLobby, Capacity: manager.gameConfig.LobbyCapacity, Clients: make(map[uint64]*Client), CreatedAt: time.Now().Unix()}
 	client.RoomId = room.Id
 	room.Clients[client.User.Id] = client
 	manager.rooms[RoomTypeLobby] = append(manager.rooms[RoomTypeLobby], room)
@@ -360,7 +360,7 @@ func (manager *Manager) createOrJoinMap(ctx context.Context, client *Client, map
 	}
 
 	rid := nextMapRoomId(mapBase)
-	room := &Room{Id: rid, MapBase: mapBase, Type: RoomTypeMap, Name: "地图", Capacity: mapCapacity, Clients: make(map[uint64]*Client), Status: RoomStatusWating}
+	room := &Room{Id: rid, MapBase: mapBase, Type: RoomTypeMap, Name: "地图", Capacity: mapCapacity, Clients: make(map[uint64]*Client), Status: RoomStatusWating, CreatedAt: time.Now().Unix()}
 
 	client.RoomId = room.Id
 	room.Clients[client.User.Id] = client

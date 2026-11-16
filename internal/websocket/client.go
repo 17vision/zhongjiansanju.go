@@ -37,6 +37,7 @@ type Room struct {
 	GameServerClient *Client            `json:"gameServerClient"`
 	Status           RoomStatus         `json:"roomStatus"`
 	StartTime        int64              `json:"startTime"`
+	CreatedAt        int64              `json:"createdAt"` // 房间创建时间（unix 秒）
 	AllocationUuid   string             `json:"allocationUuid"` // 绑定的云服务器分配 uuid，一个房间一个服务器
 	Ip               string             `json:"ip"`             // 云服务器 ip，为空表示还在创建中
 	ServerStatus     string             `json:"serverStatus"`   // 云服务器状态：creating/allocated/failed
