@@ -42,6 +42,12 @@ type Manager struct {
 
 var mapSeq int64
 var lobbySeq int64
+var gameServerSeq uint64
+
+// 游戏服务器内部 id 基数：多个云服务器进程可能上报重复 id（Unity 包内置 id），
+// 冲突时分配内部唯一 id，避免被当成异地登录互踢
+const gameServerIdBase uint64 = 1_000_000_000
+
 var recordHost string = "https://game.17vision.com"
 
 // 游戏服务器 IP 缓存文件路径：运行时由连接动态获取，落盘以便重启后兜底
@@ -135,6 +141,20 @@ func (manager *Manager) gameServerIp() string {
 
 // 创建一个 Client
 func (manager *Manager) createClient(ctx context.Context, user *User, conn *websocket.Conn) *Client {
+	// 游戏服务器不走用户的同 id 踢人逻辑：id 冲突时换内部唯一 id，保证多台云服务器共存
+	if user.Type == TypeGameServer {
+		manager.mu.Lock()
+		for {
+			_, inClients := manager.clients[user.Id]
+			_, inServers := manager.gameServerClients[user.Id]
+			if !inClients && !inServers {
+				break
+			}
+			user.Id = gameServerIdBase + atomic.AddUint64(&gameServerSeq, 1)
+		}
+		manager.mu.Unlock()
+	}
+
 	// 按 userId 串行化，避免并发接入互相覆盖或相互踢到对方
 	v, _ := manager.userLocks.LoadOrStore(user.Id, &sync.Mutex{})
 	um := v.(*sync.Mutex)
@@ -329,7 +349,12 @@ func (manager *Manager) createOrJoinMap(ctx context.Context, client *Client, map
 		if room.MapBase == mapBase && room.Status == RoomStatusWating && len(room.Clients) < mapCapacity {
 			client.RoomId = room.Id
 			room.Clients[client.User.Id] = client
+			// 创建接口曾直接报错的房间（failed 且没拿到 uuid），进房时重试创建
+			needRetry := room.ServerStatus == AllocStatusFailed && room.AllocationUuid == ""
 			manager.mu.Unlock()
+			if needRetry {
+				manager.ensureRoomAllocation(ctx, room)
+			}
 			return room
 		}
 	}
@@ -648,6 +673,7 @@ func (manager *Manager) broadcastUserLeft(ctx context.Context, room *Room, user 
 
 // 移除 client
 func (manager *Manager) removeClient(ctx context.Context, userId uint64) {
+	var offlineRoom *Room
 	manager.mu.Lock()
 	client, ok := manager.clients[userId]
 	if !ok {
@@ -673,6 +699,7 @@ func (manager *Manager) removeClient(ctx context.Context, userId uint64) {
 			if r.GameServerClient == client {
 				r.GameServerClient = nil
 				r.serverNotified = false
+				offlineRoom = r
 				break
 			}
 		}
@@ -694,6 +721,14 @@ func (manager *Manager) removeClient(ctx context.Context, userId uint64) {
 		}
 	}
 	manager.mu.Unlock()
+
+	// 游戏服务器掉线：通知房间用户（进程可能还活着，等待回连重新绑定）
+	if offlineRoom != nil {
+		manager.broadcastAsync(ctx, offlineRoom, WSMessage{
+			Type: MsgTypeServerOffline,
+			Data: UserEventData{RoomId: offlineRoom.Id, Message: "游戏服务器掉线，等待回连"},
+		}, nil)
+	}
 
 	if room != nil {
 		manager.broadcastUserLeft(ctx, room, client.User)

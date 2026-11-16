@@ -19,6 +19,7 @@ const (
 	CanEnterRoom       = "canEnterRoom" // 可以进入房间
 	MsgTypeServerReady = "serverReady"  // 房间云服务器就绪（有 ip 了）
 	MsgTypeServerCreating = "serverCreating" // 房间云服务器创建中（还没有 ip）
+	MsgTypeServerOffline  = "serverOffline"  // 房间游戏服务器掉线（等待回连）
 )
 
 // 默认地图（特殊房间）标识
