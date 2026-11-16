@@ -95,6 +95,7 @@ type Client struct {
 	User      *User           `json:"user" sm:"用户信息"`
 	RoomType  RoomType        `json:"roomType" sm:"房间类型"`
 	RoomId    string          `json:"roomId" sm:"房间Id"`
+	CreatedAt int64           `json:"createdAt" sm:"创建时间（ unix 秒）"`
 	conn      *websocket.Conn `sm:"websocket.Conn"`
 	send      chan []byte     `sm:"异步写队列"`
 	done      chan struct{}   `sm:"关闭信号"`

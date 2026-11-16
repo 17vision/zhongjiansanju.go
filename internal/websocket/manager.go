@@ -165,7 +165,7 @@ func (manager *Manager) createClient(ctx context.Context, user *User, conn *webs
 	}
 
 	// 创建并立即注册新 client（保证 manager.clients 总是指向最新 client）
-	client := &Client{User: user, conn: conn, send: make(chan []byte, 256), done: make(chan struct{})}
+	client := &Client{User: user, conn: conn, send: make(chan []byte, 256), done: make(chan struct{}), CreatedAt: time.Now().Unix()}
 	manager.clients[user.Id] = client
 	manager.mu.Unlock()
 

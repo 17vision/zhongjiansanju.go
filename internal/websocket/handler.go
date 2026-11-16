@@ -11,6 +11,7 @@ import (
 	"github.com/gogf/gf/v2/encoding/gjson"
 	"github.com/gogf/gf/v2/frame/g"
 	"github.com/gogf/gf/v2/net/ghttp"
+	"github.com/gogf/gf/v2/os/gtime"
 	"github.com/gorilla/websocket"
 )
 
@@ -412,11 +413,12 @@ func getRoomsHandler(r *ghttp.Request) {
 	}
 
 	type GameServerClient struct {
-		Id       uint64 `json:"id"`
-		Port     int    `json:"port"`
-		Ip       string `json:"ip"`
-		IsServer bool   `json:"isServer"`
-		RoomId   string `json:"roomId"`
+		Id        uint64 `json:"id"`
+		Port      int    `json:"port"`
+		Ip        string `json:"ip"`
+		IsServer  bool   `json:"isServer"`
+		RoomId    string `json:"roomId"`
+		CreatedAt string `json:"createdAt"`
 	}
 
 	outGameServerClient := make([]GameServerClient, 0, len(manager.gameServerClients))
@@ -427,11 +429,12 @@ func getRoomsHandler(r *ghttp.Request) {
 			ip = item.User.Allocation.Ip
 		}
 		outGameServerClient = append(outGameServerClient, GameServerClient{
-			Id:       item.User.Id,
-			Port:     item.User.Port,
-			Ip:       ip,
-			IsServer: item.User.Extend.IsServer,
-			RoomId:   item.RoomId,
+			Id:        item.User.Id,
+			Port:      item.User.Port,
+			Ip:        ip,
+			IsServer:  item.User.Extend.IsServer,
+			RoomId:    item.RoomId,
+			CreatedAt: gtime.New(item.CreatedAt).Format("Y-m-d H:i:s"),
 		})
 	}
 
