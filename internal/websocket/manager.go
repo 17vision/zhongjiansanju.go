@@ -483,6 +483,13 @@ func (manager *Manager) start(ctx context.Context, roomId string) bool {
 		return false
 	}
 
+	// 房间必须有人才能开始游戏
+	if len(room.Clients) == 0 {
+		manager.mu.Unlock()
+		g.Log("test").Async().Infof(ctx, "开始游戏失败，房间无人: %s", roomId)
+		return false
+	}
+
 	// 云服务器必须就绪（有 ip 且游戏服务器已回连）才能开始
 	if room.Type == RoomTypeMap && (room.Ip == "" || room.GameServerClient == nil) {
 		manager.mu.Unlock()
