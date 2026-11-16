@@ -4,7 +4,6 @@ import (
 	"context"
 
 	"github.com/gogf/gf/v2/encoding/gjson"
-	"github.com/gogf/gf/v2/errors/gerror"
 	"github.com/gogf/gf/v2/frame/g"
 )
 
@@ -82,51 +81,28 @@ func ChatHandler(ctx context.Context, manager *Manager, client *Client, message 
 func CreateOrJoinMapHandler(ctx context.Context, manager *Manager, client *Client, message interface{}) error {
 	req := message.(*CreateOrJoinMapReq)
 
-	gerror.New("进入房间---------------------")
-
-	// 有房间或有 gameServer 才能进入，否则切换失败
-	var room *Room
-	room = manager.getMapRoom(req.Map)
-	if room == nil {
-		// 创建这个地图之前，先看看是否有闲置机器人
-		if len(manager.gameServerClients) == 0 {
-			manager.unicastAsync(ctx, client, WSMessage{
-				Type: MsgTypeError,
-				Data: UserEventData{Message: "创建或进入地图失败,缺少游戏服务器", UserId: client.User.Id},
-			})
-			return gerror.New("创建或进入地图失败，缺少游戏服务器")
-		}
-
-		var selectClient *Client
-		for _, tempClient := range manager.gameServerClients {
-			if tempClient.User.Extend.IsServer == false {
-				selectClient = tempClient
-				break
-			}
-		}
-
-		if selectClient == nil {
-			manager.unicastAsync(ctx, client, WSMessage{
-				Type: MsgTypeError,
-				Data: UserEventData{Message: "创建或进入地图失败,游戏服务器被占用", UserId: client.User.Id},
-			})
-			return gerror.New("创建或进入地图失败，游戏服务器被占用")
-		}
+	if req.Map == "" {
+		req.Map = defaultMapBase
 	}
-	// 先退出以前的房子
 
 	// 先退出以前的房子
 	manager.leftLobbyOrMap(ctx, client)
 
-	// 再创建或进房子
-	room = manager.createOrJoinMap(client, req.Map)
+	// 再创建或进房子：满员就新建房间，新房间会异步创建云服务器
+	room := manager.createOrJoinMap(ctx, client, req.Map)
 
 	g.Log("test").Async().Infof(ctx, "用户 %d 创建或进入地图 %s", client.User.Id, room.Id)
 
-	// 发给自己，加入了房间
+	// 发给自己，加入了房间（ip 为空表示云服务器还在创建中）
+	manager.mu.RLock()
+	var port int
+	if room.GameServerClient != nil {
+		port = room.GameServerClient.User.Port
+	}
+	manager.mu.RUnlock()
 	manager.unicastAsync(ctx, client, WSMessage{
 		Type: MsgTypeJoined,
-		Data: UserEventData{RoomId: room.Id, Ip: manager.gameServerIp(), Port: int(room.GameServerClient.User.Port)},
+		Data: UserEventData{RoomId: room.Id, Ip: room.Ip, Port: port},
 	})
 
 	// 把房间里的人推送给自己
@@ -134,6 +110,9 @@ func CreateOrJoinMapHandler(ctx context.Context, manager *Manager, client *Clien
 
 	// 广播消息，有人进来了
 	manager.broadcastUserJoined(ctx, room, client.User)
+
+	// 推送云服务器状态：创建中/就绪/失败
+	manager.pushServerStatus(ctx, room, client)
 
 	return nil
 }

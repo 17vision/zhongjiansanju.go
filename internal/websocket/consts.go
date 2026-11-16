@@ -17,4 +17,9 @@ const (
 	MsgTypeStopGame    = "stop_game"    // 游戏结束
 	MsgTypeUserIsReady = "userIsReady"  // 用户开始
 	CanEnterRoom       = "canEnterRoom" // 可以进入房间
+	MsgTypeServerReady = "serverReady"  // 房间云服务器就绪（有 ip 了）
+	MsgTypeServerCreating = "serverCreating" // 房间云服务器创建中（还没有 ip）
 )
+
+// 默认地图（特殊房间）标识
+const defaultMapBase = "hxnc-hongkou"

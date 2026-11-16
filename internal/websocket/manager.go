@@ -236,13 +236,16 @@ func (manager *Manager) KickRoom(ctx context.Context, room *Room, user *User, re
 		Data: map[string]any{"reason": reason},
 	})
 
+	manager.mu.Lock()
 	delete(room.Clients, user.Id)
+	empty := len(room.Clients) == 0
+	manager.mu.Unlock()
 
 	// 广播用户离开房间
 	manager.broadcastUserLeft(ctx, room, user)
 
-	if len(room.Clients) == 0 {
-		manager.destroyRoom()
+	if empty {
+		manager.destroyRoom(room)
 	}
 
 	// 进入或创建房间
@@ -313,9 +316,9 @@ func (manager *Manager) getMapRoom(mapBase string) *Room {
 }
 
 // 创建或进入地图【大厅只有一个，地图却有很多，需要通过 mapBase 来区分】
-func (manager *Manager) createOrJoinMap(client *Client, mapBase string) *Room {
+// 房间满员（最多 MapCapacity 人）就新建房间；新房间触发异步创建云服务器
+func (manager *Manager) createOrJoinMap(ctx context.Context, client *Client, mapBase string) *Room {
 	manager.mu.Lock()
-	defer manager.mu.Unlock()
 
 	client.RoomType = RoomTypeMap
 
@@ -326,34 +329,27 @@ func (manager *Manager) createOrJoinMap(client *Client, mapBase string) *Room {
 		if room.MapBase == mapBase && room.Status == RoomStatusWating && len(room.Clients) < mapCapacity {
 			client.RoomId = room.Id
 			room.Clients[client.User.Id] = client
+			manager.mu.Unlock()
 			return room
 		}
 	}
 
-	var selectClient *Client
-	for _, tempClient := range manager.gameServerClients {
-		if tempClient.User.Extend.IsServer == false {
-			selectClient = tempClient
-			break
-		}
-	}
-
-	if selectClient == nil {
-		return nil
-	}
-	selectClient.User.Extend.IsServer = true
-
-	rid := fmt.Sprintf("%s-%d", mapBase, atomic.AddInt64(&mapSeq, 1))
+	rid := nextMapRoomId(mapBase)
 	room := &Room{Id: rid, MapBase: mapBase, Type: RoomTypeMap, Name: "地图", Capacity: mapCapacity, Clients: make(map[uint64]*Client), Status: RoomStatusWating}
-	room.GameServerClient = selectClient
-
-	// 把绑定的房间 id 也带上
-	selectClient.RoomId = room.Id
 
 	client.RoomId = room.Id
 	room.Clients[client.User.Id] = client
 	manager.rooms[RoomTypeMap] = append(manager.rooms[RoomTypeMap], room)
+	manager.mu.Unlock()
+
+	// 一个房间一个云服务器：新房间触发异步创建（ip 为空表示创建中）
+	manager.ensureRoomAllocation(ctx, room)
 	return room
+}
+
+// 生成新的地图房间 id
+func nextMapRoomId(mapBase string) string {
+	return fmt.Sprintf("%s-%d", mapBase, atomic.AddInt64(&mapSeq, 1))
 }
 
 // 离开大厅或房间
@@ -375,7 +371,7 @@ func (manager *Manager) leftLobbyOrMap(ctx context.Context, client *Client) {
 		manager.broadcastUserLeft(ctx, room, client.User)
 
 		if len(room.Clients) == 0 {
-			manager.destroyRoom()
+			manager.destroyRoom(room)
 		}
 	} else {
 		g.Log("test").Async().Infof(ctx, "用户 %d 离开房间失败，找不到房间 %s", client.User.Id, client.RoomId)
@@ -385,13 +381,11 @@ func (manager *Manager) leftLobbyOrMap(ctx context.Context, client *Client) {
 // 进入某个房间
 func (manager *Manager) JoinRoom(ctx context.Context, userId uint64, roomID string) error {
 	manager.mu.Lock()
-
 	client, ok := manager.clients[userId]
 	if !ok {
 		manager.mu.Unlock()
 		return fmt.Errorf("user not found")
 	}
-	manager.mu.Unlock()
 
 	var newRoom *Room
 	for _, list := range manager.rooms {
@@ -401,28 +395,32 @@ func (manager *Manager) JoinRoom(ctx context.Context, userId uint64, roomID stri
 				break
 			}
 		}
+
+		if newRoom != nil {
+			break
+		}
 	}
 
 	if newRoom == nil {
-		return gerror.New("房间不存在[]")
+		manager.mu.Unlock()
+		return gerror.New("房间不存在")
 	}
 
-	var max int
-	if newRoom.Type == RoomTypeLobby {
-		max = manager.gameConfig.LobbyCapacity
-	} else {
-		max = manager.gameConfig.MapCapacity
-	}
-
-	if len(newRoom.Clients) >= max {
+	if len(newRoom.Clients) >= newRoom.Capacity {
+		manager.mu.Unlock()
 		return gerror.New("房间已满员")
 	}
+	manager.mu.Unlock()
 
 	// 先离开房间
 	manager.leftLobbyOrMap(ctx, client)
 
 	// 再加入房间
+	manager.mu.Lock()
 	newRoom.Clients[client.User.Id] = client
+	client.RoomId = newRoom.Id
+	client.RoomType = newRoom.Type
+	manager.mu.Unlock()
 
 	// 把房间里的人推送给自己
 	manager.pushRoomUserList(ctx, newRoom, *client.User)
@@ -430,7 +428,10 @@ func (manager *Manager) JoinRoom(ctx context.Context, userId uint64, roomID stri
 	// 广播消息，有人进来了
 	manager.broadcastUserJoined(ctx, newRoom, client.User)
 
-	return fmt.Errorf("room not found")
+	// 推送房间云服务器状态
+	manager.pushServerStatus(ctx, newRoom, client)
+
+	return nil
 }
 
 func (manager *Manager) start(ctx context.Context, roomId string) bool {
@@ -454,6 +455,13 @@ func (manager *Manager) start(ctx context.Context, roomId string) bool {
 	if room == nil {
 		manager.mu.Unlock()
 		g.Log("test").Async().Infof(ctx, "开始游戏失败，房间不存在: %s", roomId)
+		return false
+	}
+
+	// 云服务器必须就绪（有 ip 且游戏服务器已回连）才能开始
+	if room.Type == RoomTypeMap && (room.Ip == "" || room.GameServerClient == nil) {
+		manager.mu.Unlock()
+		g.Log("test").Async().Infof(ctx, "开始游戏失败，云服务器未就绪, 房间 %s", roomId)
 		return false
 	}
 
@@ -488,7 +496,7 @@ func (manager *Manager) start(ctx context.Context, roomId string) bool {
 
 		data := &model.GameRecordsCreateReq{
 			GlassesUseId: client.User.GlassesUseId,
-			Name:         "hxnc-hongkou",
+			Name:         defaultMapBase,
 			Ip:           client.User.Extend.ConnectIp,
 			ConnectAt:    gtime.NewFromTimeStamp(client.User.Extend.ConnectTime),
 			StartAt:      gtime.NewFromTimeStamp(client.User.Extend.StartTime),
@@ -575,54 +583,26 @@ func (manager *Manager) stop(ctx context.Context, roomId string) bool {
 	return true
 }
 
-// 告诉客户端，可以进房间
+// 告诉客户端，可以进房间：房间满员会新建房间并触发创建云服务器，所以总是可以进
 func (manager *Manager) pushUserCanEnterRoom(ctx context.Context, client *Client) {
-	// 如果有空房间可以进或有空的服务器
-	var room *Room
-	room = manager.getMapRoom("hxnc-hongkou")
-
-	// 无房间
-	if room == nil {
-		if len(manager.gameServerClients) == 0 {
-			return
-		}
-
-		var selectClient *Client
-		for _, tempClient := range manager.gameServerClients {
-			if tempClient.User.Extend.IsServer == false {
-				selectClient = tempClient
-				break
-			}
-		}
-
-		// 无空闲服务
-		if selectClient == nil {
-			return
-		}
-		g.Log("test").Async().Infof(ctx, "有空闲服务器用户 %d 可以进入房间", client.User.Id)
-	} else {
-		g.Log("test").Async().Infof(ctx, "有房间用户 %d 可以进入房间", client.User.Id)
-	}
-
 	manager.unicastAsync(ctx, client, WSMessage{
 		Type: CanEnterRoom,
 		Data: nil,
 	})
 }
 
-// 检查是否有未进入房间的用户，如果有，并少于房间允许人数，也是可以进房间
+// 通知大厅用户可以进房间了（房间满员会新建房间）
 func (manager *Manager) checkUserCanEnterRoom(ctx context.Context) {
-	var clients []*Client
-	for _, rooms := range manager.rooms[RoomTypeLobby] {
-		for _, c := range rooms.Clients {
-			if len(clients) >= manager.gameConfig.MapCapacity {
-				break
-			}
+	manager.mu.RLock()
+	clients := make([]*Client, 0)
+	for _, room := range manager.rooms[RoomTypeLobby] {
+		for _, c := range room.Clients {
 			clients = append(clients, c)
 		}
 	}
+	manager.mu.RUnlock()
 
-	g.Log("test").Async().Infof(ctx, "有 %d 个用户可以进入房间", len(clients))
+	g.Log("test").Async().Infof(ctx, "通知 %d 个大厅用户可以进入房间", len(clients))
 
 	for _, c := range clients {
 		manager.unicastAsync(ctx, c, WSMessage{
@@ -654,7 +634,7 @@ func (manager *Manager) pushRoomUserList(ctx context.Context, room *Room, user U
 func (manager *Manager) broadcastUserJoined(ctx context.Context, room *Room, user *User) {
 	manager.broadcastAsync(ctx, room, WSMessage{
 		Type: MsgTypeUserJoined,
-		Data: UserEventData{RoomId: room.Id, UserId: user.Id, Ip: manager.gameServerIp()},
+		Data: UserEventData{RoomId: room.Id, UserId: user.Id, Ip: room.Ip},
 	}, user)
 }
 
@@ -683,12 +663,19 @@ func (manager *Manager) removeClient(ctx context.Context, userId uint64) {
 
 	glassesUseId := client.User.GlassesUseId
 
-	// 如果是游戏服务器挂了，就删除游戏服务器
+	// 如果是游戏服务器挂了，就删除游戏服务器，并解绑房间
 	if client.User.Type == TypeGameServer {
 		client.User.Extend.IsServer = false
 		client.RoomId = ""
 		// 删除引用
 		delete(manager.gameServerClients, userId)
+		for _, r := range manager.rooms[RoomTypeMap] {
+			if r.GameServerClient == client {
+				r.GameServerClient = nil
+				r.serverNotified = false
+				break
+			}
+		}
 		g.Log("test").Async().Infof(ctx, "游戏服务器退出，删除引用")
 	}
 
@@ -722,7 +709,7 @@ func (manager *Manager) removeClient(ctx context.Context, userId uint64) {
 				g.Log("test").Async().Info(ctx, gjson.MustEncodeString(manager.gameServerClients))
 			}
 
-			manager.destroyRoom()
+			manager.destroyRoom(room)
 		}
 	}
 
@@ -757,19 +744,28 @@ func (manager *Manager) removeClient(ctx context.Context, userId uint64) {
 	}
 }
 
-func (manager *Manager) destroyRoom() {
+// 销毁指定房间，并释放其绑定的云服务器
+func (manager *Manager) destroyRoom(room *Room) {
 	manager.mu.Lock()
-
-	defer manager.mu.Unlock()
-
-	for index, list := range manager.rooms {
-		filtered := list[:0]
-		for _, r := range list {
-			if len(r.Clients) > 0 {
-				filtered = append(filtered, r)
-			}
+	list := manager.rooms[room.Type]
+	filtered := list[:0]
+	for _, r := range list {
+		if r != room {
+			filtered = append(filtered, r)
 		}
-		manager.rooms[index] = filtered
+	}
+	manager.rooms[room.Type] = filtered
+	allocUuid := room.AllocationUuid
+	room.AllocationUuid = ""
+	manager.mu.Unlock()
+
+	// 房间没了，释放对应的云服务器，避免继续计费
+	if allocUuid != "" {
+		go func(id string) {
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			unityService.DeleteAllocation(ctx, id)
+		}(allocUuid)
 	}
 }
 

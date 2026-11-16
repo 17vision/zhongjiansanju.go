@@ -20,6 +20,8 @@ var unityService *UnityService
 func init() {
 	manager = NewManager(50, 8)
 	unityService = NewUnityService()
+	// 云服务器创建结果（轮询/回调）通知房间
+	unityService.SetHooks(manager.onAllocationReady, manager.onAllocationFailed)
 }
 
 type AllocationCallbackReq struct {
@@ -63,6 +65,13 @@ func BindRouters(s *ghttp.Server) {
 
 		group.POST("/stop", stopHandler)
 
+		// 云服务器分配：创建/查询/释放（与 start/stop 并列）
+		group.POST("/allocation", createAllocationHandler)
+
+		group.GET("/allocation", getAllocationHandler)
+
+		group.POST("/allocation/delete", deleteAllocationHandler)
+
 		group.POST("/allocation/callback", allocationCallback)
 	})
 
@@ -89,19 +98,81 @@ func allocationCallback(r *ghttp.Request) {
 
 	g.Log().Infof(r.GetCtx(), "alloc callback, uuid=%s, status=%s, ip=%s, ports=%+v", allocUUID, status, ip, ports)
 
-	switch status {
-	case "allocated":
-		// 更新分配成功
-	case "failed":
-		// 更新失败，记录 req.Msg
-	default:
-		g.Log().Warningf(r.GetCtx(), "unknown allocation status: %s", status)
-	}
+	// 与轮询共用幂等完成逻辑：allocated 补全 ip，failed 记录原因
+	unityService.HandleCallback(allocUUID, ip, ports, status, req.Msg)
 
 	r.Response.WriteJson(g.Map{
 		"code": 0,
 		"msg":  "ok",
 	})
+}
+
+// createAllocationHandler HTTP 创建云服务器：
+// 传 roomId 则给已有房间补建服务器；不传则新建房间并触发创建。
+// 立即返回分配信息，ip 为空表示创建中，可轮询 GET /ws/allocation 或等回调。
+func createAllocationHandler(r *ghttp.Request) {
+	ctx := r.GetCtx()
+	roomId := r.Get("roomId").String()
+	mapBase := r.Get("mapBase").String()
+	if mapBase == "" {
+		mapBase = defaultMapBase
+	}
+
+	var room *Room
+	if roomId != "" {
+		manager.mu.RLock()
+		for _, item := range manager.rooms[RoomTypeMap] {
+			if item.Id == roomId {
+				room = item
+				break
+			}
+		}
+		manager.mu.RUnlock()
+
+		if room == nil {
+			r.Response.WriteHeader(http.StatusForbidden)
+			r.Response.WriteJson(map[string]any{"message": "房间不存在"})
+			return
+		}
+		manager.ensureRoomAllocation(ctx, room)
+	} else {
+		room = manager.CreateRoomWithServer(ctx, mapBase)
+	}
+
+	alloc := unityService.GetRoomAllocation(room.Id)
+
+	r.Response.WriteHeader(http.StatusOK)
+	r.Response.WriteJson(map[string]any{
+		"roomId":     room.Id,
+		"allocation": alloc, // ip 为空表示创建中
+	})
+}
+
+// getAllocationHandler 查询分配状态：传 uuid 查单个，不传查全部
+func getAllocationHandler(r *ghttp.Request) {
+	id := r.Get("uuid").String()
+
+	r.Response.WriteHeader(http.StatusOK)
+	if id != "" {
+		r.Response.WriteJson(map[string]any{"allocation": unityService.GetAllocation(id)})
+		return
+	}
+	r.Response.WriteJson(map[string]any{"allocations": unityService.ListAllocations()})
+}
+
+// deleteAllocationHandler 释放云服务器
+func deleteAllocationHandler(r *ghttp.Request) {
+	id := r.Get("uuid").String()
+	if id == "" {
+		r.Response.WriteHeader(http.StatusForbidden)
+		r.Response.WriteJson(map[string]any{"message": "请传 uuid"})
+		return
+	}
+
+	manager.releaseRoomServer(r.GetCtx(), id)
+
+	r.Response.WriteHeader(http.StatusOK)
+	r.Response.WriteJson(map[string]any{"result": true})
 }
 
 func websocketHandler(r *ghttp.Request) {
@@ -135,48 +206,37 @@ func websocketHandler(r *ghttp.Request) {
 		return
 	}
 
-	// 普通客户端用户激活
+	// 普通用户：先取设备使用信息（昵称/模型），决定是否直接进特殊房间
 	if user.Type == TypeUser {
-		if unityService.GetStatus() {
-			g.Log().Error(ctx, "服务器分配中，请稍后再连")
-			r.Response.WriteStatusExit(http.StatusInternalServerError, "服务器分配中，请稍后再连")
-			return
-		}
+		// 干掉设置昵称 模型的功能
+		// res, err := service.GlassesUse().One(ctx, user.EquipmentSn)
+		// if err != nil {
+		// 	g.Log().Error(ctx, "初始化用户信息失败", err.Error())
+		// 	conn.Close()
+		// 	return
+		// }
 
-		allocation, err := unityService.GetAllocation(ctx)
-		if err != nil {
-			g.Log().Error(ctx, "分配服务器失败[1]:", err)
-			r.Response.WriteStatusExit(http.StatusInternalServerError, "分配服务器失败:"+err.Error())
-			return
-		}
+		// if res == nil {
+		// 	g.Log().Error(ctx, "初始化用户信息失败", "设备和设备关系不存在")
+		// 	conn.Close()
+		// 	return
+		// }
 
-		if allocation == nil {
-			g.Log().Error(ctx, "分配服务器失败[2]:", err)
-			r.Response.WriteStatusExit(http.StatusInternalServerError, "分配服务器失败")
-			return
-		}
+		// g.Log().Info(ctx, "相关设备信息：", gjson.MustEncodeString(res))
 
-		if len(manager.gameServerClients) == 0 {
-			g.Log().Error(ctx, "等待云服务器连接")
-			conn.Close()
-			r.Response.WriteStatusExit(http.StatusInternalServerError, "等待云服务器连接")
-			return
-		}
-		user.Allocation = allocation
-	} else {
-		allocation, err := unityService.GetAllocation(ctx)
-		if err != nil {
-			g.Log().Error(ctx, "[2]分配服务器失败[1]:", err)
-			r.Response.WriteStatusExit(http.StatusInternalServerError, "分配服务器失败:"+err.Error())
-			return
-		}
+		// user.Nickname = res.GlassesUse.Nickname
+		// user.Model = res.GlassesUse.Model
+		// user.GlassesUseId = res.GlassesUse.Id
 
-		if allocation == nil {
-			g.Log().Error(ctx, "[2]分配服务器失败[2]:", err)
-			r.Response.WriteStatusExit(http.StatusInternalServerError, "分配服务器失败")
-			return
-		}
-		user.Allocation = allocation
+		// if err = service.GlassesUse().UpdateStatus(ctx, int64(res.GlassesUse.Id), 2); err != nil {
+		// 	g.Log().Error(ctx, "更新设备状态为 2 失败", err.Error())
+		// 	conn.Close()
+		// 	return
+		// }
+		// g.Log().Info(ctx, "更新设备状态为 2 成功")
+
+		user.Nickname = "ClientID"
+		user.Model = "Player"
 	}
 
 	user.Extend = &UserExtend{
@@ -187,35 +247,6 @@ func websocketHandler(r *ghttp.Request) {
 	}
 
 	g.Log().Info(ctx, "用户进入：", gjson.MustEncodeString(user))
-
-	if user.Type == TypeUser {
-		res, err := service.GlassesUse().One(ctx, user.EquipmentSn)
-
-		if err != nil {
-			g.Log().Error(ctx, "初始化用户信息失败", err.Error())
-			return
-		}
-
-		if res == nil {
-			g.Log().Error(ctx, "初始化用户信息失败", "设备和设备关系不存在")
-			return
-		}
-
-		g.Log().Info(ctx, "相关设备信息：", gjson.MustEncodeString(res))
-
-		user.Nickname = res.GlassesUse.Nickname
-		user.Model = res.GlassesUse.Model
-		user.GlassesUseId = res.GlassesUse.Id
-
-		err = service.GlassesUse().UpdateStatus(ctx, int64(res.GlassesUse.Id), 2)
-		if err != nil {
-			g.Log().Error(ctx, "更新设备状态为 2 失败", err.Error())
-			return
-		} else {
-			g.Log().Info(ctx, "更新设备状态为 2 成功")
-		}
-		// user.Nickname = GetName()
-	}
 
 	// 断开处理
 	conn.SetCloseHandler(func(code int, text string) error {
@@ -233,37 +264,52 @@ func websocketHandler(r *ghttp.Request) {
 		return
 	}
 
-	// 默认进入大厅
-	var room *Room
-	if user.Type == TypeUser {
-		room = manager.createOrJoinLobby(client)
-	} else {
-		manager.addGameClient(client)
-
-		// 游戏服务器客户端连上，用其真实 IP 动态更新（变化才更新并写缓存）
-		manager.updateGameServerIp(ctx, user.Allocation.Ip)
-	}
-
 	// 读写双泵
 	go client.writePump(ctx)
 	go client.readPump(ctx, manager)
 
-	if room != nil {
+	if user.Type == TypeUser {
+		var room *Room
+		if user.Nickname != "" && user.Model != "" {
+			// 配置了昵称和模型：直接进特殊房间，没有可用房间就新建并异步创建云服务器
+			room = manager.createOrJoinMap(ctx, client, defaultMapBase)
+			user.Allocation = unityService.GetRoomAllocation(room.Id)
+		} else {
+			// 默认进入大厅
+			room = manager.createOrJoinLobby(client)
+		}
+
+		// 发给自己，加入了房间（ip 为空表示云服务器还在创建中）
+		manager.mu.RLock()
+		var port int
+		if room.GameServerClient != nil {
+			port = room.GameServerClient.User.Port
+		}
+		manager.mu.RUnlock()
+		manager.unicastAsync(ctx, client, WSMessage{
+			Type: MsgTypeJoined,
+			Data: UserEventData{RoomId: room.Id, Ip: room.Ip, Port: port},
+		})
+
 		// 把房间里的人推送给自己
 		manager.pushRoomUserList(ctx, room, user)
 
 		// 广播消息，有人进来了
 		manager.broadcastUserJoined(ctx, room, &user)
 
-		// 如果用户可以进房间就发给用户
-		manager.pushUserCanEnterRoom(ctx, client)
+		if room.Type == RoomTypeMap {
+			// 推送云服务器状态：创建中/就绪/失败
+			manager.pushServerStatus(ctx, room, client)
+		} else {
+			// 大厅用户可以进房间
+			manager.pushUserCanEnterRoom(ctx, client)
+		}
 	} else {
-		manager.unicastAsync(ctx, client, WSMessage{
-			Type: MsgTypeUserJoined,
-			Data: UserEventData{UserId: user.Id, Ip: manager.gameServerIp()},
-		})
+		// 游戏服务器回连：按分配 uuid 绑定归属房间
+		manager.addGameClient(client)
+		manager.bindGameServer(ctx, client)
 
-		// 服务器进来，给未进入房间的用户发送命令
+		// 服务器进来，给大厅用户发送可进房间命令
 		manager.checkUserCanEnterRoom(ctx)
 	}
 }
@@ -375,10 +421,15 @@ func getRoomsHandler(r *ghttp.Request) {
 
 	outGameServerClient := make([]GameServerClient, 0, len(manager.gameServerClients))
 	for _, item := range manager.gameServerClients {
+		// 优先用服务器自己分配信息里的 ip（多房间多服务器）
+		ip := manager.gameServerIp()
+		if item.User.Allocation != nil && item.User.Allocation.Ip != "" {
+			ip = item.User.Allocation.Ip
+		}
 		outGameServerClient = append(outGameServerClient, GameServerClient{
 			Id:       item.User.Id,
 			Port:     item.User.Port,
-			Ip:       manager.gameServerIp(),
+			Ip:       ip,
 			IsServer: item.User.Extend.IsServer,
 			RoomId:   item.RoomId,
 		})

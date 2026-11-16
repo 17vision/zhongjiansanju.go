@@ -37,6 +37,11 @@ type Room struct {
 	GameServerClient *Client            `json:"gameServerClient"`
 	Status           RoomStatus         `json:"roomStatus"`
 	StartTime        int64              `json:"startTime"`
+	AllocationUuid   string             `json:"allocationUuid"` // 绑定的云服务器分配 uuid，一个房间一个服务器
+	Ip               string             `json:"ip"`             // 云服务器 ip，为空表示还在创建中
+	ServerStatus     string             `json:"serverStatus"`   // 云服务器状态：creating/allocated/failed
+	serverNotified   bool               // serverReady 是否已广播过
+	allocCreating    bool               // 是否正在创建云服务器（防并发重复创建）
 }
 
 type Gender int
@@ -164,7 +169,7 @@ func (c *Client) readPump(ctx context.Context, m *Manager) {
 			payload = new(ChatReq)
 		case "createOrJoinMap":
 			payload = new(CreateOrJoinMapReq)
-		case "JoinRoomHandler":
+		case "joinRoom":
 			payload = new(JoinRoomReq)
 		case "action":
 			payload = new(ActionReq)
@@ -174,9 +179,15 @@ func (c *Client) readPump(ctx context.Context, m *Manager) {
 			continue
 		}
 
-		if err := env.Data.Scan(payload); err != nil {
-			g.Log("test").Async().Errorf(ctx, "消息解析失败[1] %s fail: %v", env.Type, err)
-			continue
+		if payload != nil {
+			if env.Data == nil {
+				g.Log("test").Async().Errorf(ctx, "消息缺少 data: %s", env.Type)
+				continue
+			}
+			if err := env.Data.Scan(payload); err != nil {
+				g.Log("test").Async().Errorf(ctx, "消息解析失败[1] %s fail: %v", env.Type, err)
+				continue
+			}
 		}
 
 		if err := handler(ctx, m, c, payload); err != nil {
