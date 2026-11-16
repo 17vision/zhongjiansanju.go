@@ -370,9 +370,11 @@ func stopHandler(r *ghttp.Request) {
 
 type OutRoom struct {
 	*Room
-	UserLength    int   `json:"userLength"`
-	AllReady      bool  `json:"allReady"`
-	StartDuration int64 `json:"startDuration"`
+	UserLength    int         `json:"userLength"`
+	AllReady      bool        `json:"allReady"`
+	StartDuration int64       `json:"startDuration"`
+	ServerReady   bool        `json:"serverReady"`  // 云服务器就绪（有 ip 且游戏服务器已回连）才能开始游戏
+	Allocation    *Allocation `json:"allocation"`   // 云服务器分配信息（ip 为空表示创建中）
 }
 
 func getRoomsHandler(r *ghttp.Request) {
@@ -408,6 +410,8 @@ func getRoomsHandler(r *ghttp.Request) {
 				UserLength:    allNum,
 				AllReady:      readyNum == allNum,
 				StartDuration: startDuration,
+				ServerReady:   item1.Ip != "" && item1.GameServerClient != nil,
+				Allocation:    unityService.GetRoomAllocation(item1.Id),
 			})
 		}
 	}
@@ -423,10 +427,12 @@ func getRoomsHandler(r *ghttp.Request) {
 
 	outGameServerClient := make([]GameServerClient, 0, len(manager.gameServerClients))
 	for _, item := range manager.gameServerClients {
-		// 优先用服务器自己分配信息里的 ip（多房间多服务器）
-		ip := manager.gameServerIp()
+		// 用服务器自己的分配 ip，其次用 WS 连接来源 IP；不用全局缓存兜底，避免多服务器时显示串 IP
+		ip := ""
 		if item.User.Allocation != nil && item.User.Allocation.Ip != "" {
 			ip = item.User.Allocation.Ip
+		} else if item.User.Extend != nil {
+			ip = item.User.Extend.ConnectIp
 		}
 		outGameServerClient = append(outGameServerClient, GameServerClient{
 			Id:        item.User.Id,

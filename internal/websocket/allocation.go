@@ -83,10 +83,13 @@ func (manager *Manager) onAllocationReady(alloc *Allocation) {
 	room.Ip = alloc.Ip
 	room.ServerStatus = AllocStatusAllocated
 
-	// 游戏服务器可能先于分配完成回连，这里补绑定
+	// 游戏服务器可能先于分配完成回连，这里补绑定：按 uuid 或连接 IP（游戏服务器 WS 来源 IP 就是云服务器 IP）
 	if room.GameServerClient == nil {
 		for _, c := range manager.gameServerClients {
-			if c.User.Allocation != nil && c.User.Allocation.Uuid == alloc.Uuid {
+			if c.User.Extend.IsServer {
+				continue
+			}
+			if (c.User.Allocation != nil && c.User.Allocation.Uuid == alloc.Uuid) || c.User.Extend.ConnectIp == alloc.Ip {
 				room.GameServerClient = c
 				c.User.Extend.IsServer = true
 				c.RoomId = room.Id
@@ -129,6 +132,14 @@ func (manager *Manager) onAllocationFailed(alloc *Allocation) {
 	for _, c := range clients {
 		manager.KickRoom(ctx, room, c.User, msg)
 	}
+
+	// 空房间（HTTP 预建后没人进就失败）直接销毁，避免滞留
+	manager.mu.RLock()
+	empty := len(room.Clients) == 0
+	manager.mu.RUnlock()
+	if empty {
+		manager.destroyRoom(room)
+	}
 }
 
 // bindGameServer 游戏服务器回连：按分配 uuid 绑定到归属房间
@@ -143,7 +154,16 @@ func (manager *Manager) bindGameServer(ctx context.Context, client *Client) {
 	if allocUuid != "" {
 		room = manager.findRoomByAllocationUuidLocked(allocUuid)
 	}
-	// 兜底：没带 uuid 时，绑定第一个已分配 ip 但还没有游戏服务器的房间
+	// 兜底 1：按连接 IP 匹配（游戏服务器 WS 来源 IP 就是云服务器 IP）
+	if room == nil && client.User.Extend != nil && client.User.Extend.ConnectIp != "" {
+		for _, r := range manager.rooms[RoomTypeMap] {
+			if r.Ip == client.User.Extend.ConnectIp && r.GameServerClient == nil {
+				room = r
+				break
+			}
+		}
+	}
+	// 兜底 2：没带 uuid 也对不上 IP 时，绑定第一个已分配 ip 但还没有游戏服务器的房间
 	if room == nil {
 		for _, r := range manager.rooms[RoomTypeMap] {
 			if r.Ip != "" && r.GameServerClient == nil {
@@ -154,10 +174,16 @@ func (manager *Manager) bindGameServer(ctx context.Context, client *Client) {
 	}
 	if room == nil {
 		manager.mu.Unlock()
-		g.Log("test").Async().Warningf(ctx, "游戏服务器 %d 回连但找不到归属房间, uuid=%s", client.User.Id, allocUuid)
+		g.Log("test").Async().Warningf(ctx, "游戏服务器 %d 回连但找不到归属房间, uuid=%s, ip=%s", client.User.Id, allocUuid, client.User.Extend.ConnectIp)
 		return
 	}
 
+	// 同一房间重复回连（服务器重启等）：顶替旧绑定
+	if room.GameServerClient != nil && room.GameServerClient != client {
+		room.GameServerClient.User.Extend.IsServer = false
+		room.GameServerClient.RoomId = ""
+		room.serverNotified = false
+	}
 	room.GameServerClient = client
 	client.User.Extend.IsServer = true
 	client.RoomId = room.Id
