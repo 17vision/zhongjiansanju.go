@@ -74,13 +74,17 @@ func NewManager(lobbyCap, mapCap int) *Manager {
 	// 启动时先用上次缓存的 ip 兜底（若还没有客户端连过，则为空）
 	gameConfig.Ip = loadIpCache()
 
-	return &Manager{
+	m := &Manager{
 		rooms:             make(map[RoomType][]*Room),
 		clients:           make(map[uint64]*Client),
 		gameServerClients: make(map[uint64]*Client),
 		userLocks:         sync.Map{},
 		gameConfig:        gameConfig,
 	}
+
+	// 定期清理孤立游戏服务器（Unity 进程已死但 WS 半开等残留）
+	go m.reapOrphanServers()
+	return m
 }
 
 // 读取 IP 缓存文件，返回上次记录的游戏服务器 IP，不存在或解析异常时返回空串
@@ -684,13 +688,20 @@ func (manager *Manager) removeClient(ctx context.Context, userId uint64) {
 	manager.mu.Lock()
 	client, ok := manager.clients[userId]
 	if !ok {
+		// 兜底：clients 里已被先删但 gameServerClients 还残留（竞态遗留），同样要清理
+		client, ok = manager.gameServerClients[userId]
+	}
+	if !ok {
 		manager.mu.Unlock()
 		return
 	}
 
 	g.Log("test").Async().Infof(ctx, "用户 %d 退出", client.User.Id)
 
-	delete(manager.clients, userId)
+	// 只删属于自己的条目，避免误删同 id 的新连接
+	if manager.clients[userId] == client {
+		delete(manager.clients, userId)
+	}
 
 	recordId := client.User.Extend.RecordId
 
@@ -701,7 +712,9 @@ func (manager *Manager) removeClient(ctx context.Context, userId uint64) {
 		client.User.Extend.IsServer = false
 		client.RoomId = ""
 		// 删除引用
-		delete(manager.gameServerClients, userId)
+		if manager.gameServerClients[userId] == client {
+			delete(manager.gameServerClients, userId)
+		}
 		for _, r := range manager.rooms[RoomTypeMap] {
 			if r.GameServerClient == client {
 				r.GameServerClient = nil
@@ -716,7 +729,7 @@ func (manager *Manager) removeClient(ctx context.Context, userId uint64) {
 	var room *Room
 	for _, list := range manager.rooms {
 		for _, r := range list {
-			if _, exists := r.Clients[userId]; exists {
+			if c, exists := r.Clients[userId]; exists && c == client {
 				delete(r.Clients, userId)
 				room = r
 				break
@@ -799,6 +812,12 @@ func (manager *Manager) destroyRoom(room *Room) {
 	manager.rooms[room.Type] = filtered
 	allocUuid := room.AllocationUuid
 	room.AllocationUuid = ""
+	// 解绑游戏服务器：房间没了，连接若还活着则复位为待服务，交给孤儿清理或重新绑定
+	if room.GameServerClient != nil {
+		room.GameServerClient.User.Extend.IsServer = false
+		room.GameServerClient.RoomId = ""
+		room.GameServerClient = nil
+	}
 	manager.mu.Unlock()
 
 	// 房间没了，释放对应的云服务器，避免继续计费
@@ -808,6 +827,67 @@ func (manager *Manager) destroyRoom(room *Room) {
 			defer cancel()
 			unityService.DeleteAllocation(ctx, id)
 		}(allocUuid)
+	}
+}
+
+// 孤立服务器清理参数：每 15s 扫一次，连续孤立 30s 才清理（留回连/补绑定宽限）
+const (
+	orphanReapInterval = 15 * time.Second
+	orphanGrace        = 30 * time.Second
+)
+
+// reapOrphanServers 定期清理孤立游戏服务器：连接已关闭、绑定房间已销毁/被顶替、或长期无房间可服务。
+// Unity 进程已死但 WS 半开（ping 被中间层应答）时读泵不会退出，靠这里兜底 Close 触发清理。
+func (manager *Manager) reapOrphanServers() {
+	ctx := context.Background()
+	ticker := time.NewTicker(orphanReapInterval)
+	defer ticker.Stop()
+
+	for range ticker.C {
+		now := time.Now().Unix()
+		var victims []*Client
+
+		manager.mu.Lock()
+		for _, c := range manager.gameServerClients {
+			var bound *Room
+			if c.RoomId != "" {
+				for _, list := range manager.rooms {
+					for _, r := range list {
+						if r.Id == c.RoomId {
+							bound = r
+							break
+						}
+					}
+					if bound != nil {
+						break
+					}
+				}
+			}
+
+			// 孤立判定：连接已关 / 绑定的房间不存在或已绑别人 / 无房间可服务
+			orphan := c.IsClosed() || (c.RoomId != "" && (bound == nil || bound.GameServerClient != c))
+			if !orphan && c.RoomId == "" {
+				// 未绑定：还有创建中的云服务器时允许等待补绑定，否则宽限后清理
+				orphan = !unityService.HasCreatingAllocation()
+			}
+
+			if !orphan {
+				c.orphanSince = 0
+				continue
+			}
+			if c.IsClosed() || (c.orphanSince != 0 && now-c.orphanSince >= int64(orphanGrace/time.Second)) {
+				victims = append(victims, c)
+			} else if c.orphanSince == 0 {
+				c.orphanSince = now
+			}
+		}
+		manager.mu.Unlock()
+
+		// Close 触发读泵退出 → removeClient 完成 map 清理与房间解绑
+		for _, c := range victims {
+			g.Log("test").Async().Infof(ctx, "清理孤立游戏服务器: id=%d, roomId=%s", c.User.Id, c.RoomId)
+			c.Close()
+		}
 	}
 }
 

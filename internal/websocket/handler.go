@@ -373,8 +373,8 @@ type OutRoom struct {
 	UserLength    int         `json:"userLength"`
 	AllReady      bool        `json:"allReady"`
 	StartDuration int64       `json:"startDuration"`
-	ServerReady   bool        `json:"serverReady"`  // 云服务器就绪（有 ip 且游戏服务器已回连）才能开始游戏
-	Allocation    *Allocation `json:"allocation"`   // 云服务器分配信息（ip 为空表示创建中）
+	ServerReady   bool        `json:"serverReady"` // 云服务器就绪（有 ip 且游戏服务器已回连）才能开始游戏
+	Allocation    *Allocation `json:"allocation"`  // 云服务器分配信息（ip 为空表示创建中）
 }
 
 func getRoomsHandler(r *ghttp.Request) {

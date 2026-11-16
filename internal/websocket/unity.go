@@ -192,6 +192,18 @@ func (s *UnityService) GetRoomAllocation(roomId string) *Allocation {
 	return nil
 }
 
+// HasCreatingAllocation 是否还有创建中的云服务器（孤儿清理据此允许未绑定服务器等待补绑定）
+func (s *UnityService) HasCreatingAllocation() bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for _, a := range s.allocations {
+		if a.Status == AllocStatusCreating {
+			return true
+		}
+	}
+	return false
+}
+
 // ListAllocations 返回全部分配信息
 func (s *UnityService) ListAllocations() []*Allocation {
 	s.mu.RLock()

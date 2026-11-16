@@ -37,7 +37,7 @@ type Room struct {
 	GameServerClient *Client            `json:"gameServerClient"`
 	Status           RoomStatus         `json:"roomStatus"`
 	StartTime        int64              `json:"startTime"`
-	CreatedAt        int64              `json:"createdAt"` // 房间创建时间（unix 秒）
+	CreatedAt        int64              `json:"createdAt"`      // 房间创建时间（unix 秒）
 	AllocationUuid   string             `json:"allocationUuid"` // 绑定的云服务器分配 uuid，一个房间一个服务器
 	Ip               string             `json:"ip"`             // 云服务器 ip，为空表示还在创建中
 	ServerStatus     string             `json:"serverStatus"`   // 云服务器状态：creating/allocated/failed
@@ -93,16 +93,17 @@ type GameServer struct {
 
 // 客户端
 type Client struct {
-	User      *User           `json:"user" sm:"用户信息"`
-	RoomType  RoomType        `json:"roomType" sm:"房间类型"`
-	RoomId    string          `json:"roomId" sm:"房间Id"`
-	CreatedAt int64           `json:"createdAt" sm:"创建时间（ unix 秒）"`
-	conn      *websocket.Conn `sm:"websocket.Conn"`
-	send      chan []byte     `sm:"异步写队列"`
-	done      chan struct{}   `sm:"关闭信号"`
-	mu        sync.Mutex      `sm:"保护 conn 置 nil"`
-	closeOnce sync.Once
-	closed    uint32
+	User        *User           `json:"user" sm:"用户信息"`
+	RoomType    RoomType        `json:"roomType" sm:"房间类型"`
+	RoomId      string          `json:"roomId" sm:"房间Id"`
+	CreatedAt   int64           `json:"createdAt" sm:"创建时间（ unix 秒）"`
+	conn        *websocket.Conn `sm:"websocket.Conn"`
+	send        chan []byte     `sm:"异步写队列"`
+	done        chan struct{}   `sm:"关闭信号"`
+	mu          sync.Mutex      `sm:"保护 conn 置 nil"`
+	closeOnce   sync.Once
+	closed      uint32
+	orphanSince int64 // 孤立状态起始时间（unix 秒），孤儿清理用
 }
 
 const (
