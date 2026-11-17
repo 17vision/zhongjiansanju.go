@@ -887,6 +887,16 @@ func (manager *Manager) reapOrphanServers() {
 				}
 			}
 
+			// 未绑定且没认领到有效分配：尝试按自报端口补认领空闲池分配
+			// （覆盖回连早于就绪、重启遗留等时序，补认领后 ip/端口以分配记录为准）
+			if c.RoomId == "" && !c.User.Extend.IsServer &&
+				(c.User.Allocation == nil || c.User.Allocation.Uuid == "" || unityService.GetAllocation(c.User.Allocation.Uuid) == nil) {
+				if a := manager.claimPoolAllocationLocked(c); a != nil {
+					c.User.Allocation = a
+					g.Log("test").Async().Infof(ctx, "游戏服务器 %d 按自报端口 %d 补认领空闲池分配 uuid=%s, ip=%s", c.User.Id, c.User.Port, a.Uuid, a.Ip)
+				}
+			}
+
 			// 孤立判定：连接已关 / 绑定的房间不存在或已绑别人 / 无房间可服务
 			orphan := c.IsClosed() || (c.RoomId != "" && (bound == nil || bound.GameServerClient != c))
 			if !orphan && c.RoomId == "" {

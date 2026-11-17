@@ -271,6 +271,16 @@ func (manager *Manager) bindGameServer(ctx context.Context, client *Client) {
 			}
 		}
 	}
+	// 进程没带可匹配的 uuid：按自报端口认领空闲池分配（唯一匹配才认领），
+	// 认领后保持待命，不走兜底避免误绑到别的房间
+	if room == nil {
+		if a := manager.claimPoolAllocationLocked(client); a != nil {
+			client.User.Allocation = a
+			manager.mu.Unlock()
+			g.Log("test").Async().Infof(ctx, "游戏服务器 %d 按自报端口 %d 认领空闲池分配 uuid=%s, ip=%s", client.User.Id, client.User.Port, a.Uuid, a.Ip)
+			return
+		}
+	}
 	// 兜底 1：按连接 IP 匹配（游戏服务器 WS 来源 IP 就是云服务器 IP）
 	if room == nil && client.User.Extend != nil && client.User.Extend.ConnectIp != "" {
 		for _, r := range manager.rooms[RoomTypeMap] {
@@ -320,6 +330,41 @@ func (manager *Manager) bindGameServer(ctx context.Context, client *Client) {
 	})
 
 	manager.notifyServerReady(ctx, room)
+}
+
+// claimPoolAllocationLocked 按自报端口认领空闲池分配（调用方必须持有 manager.mu）：
+// 游戏进程回连可能不带 uuid、WS 来源 IP 又是 NAT 出口 IP，只能靠自报端口与分配 tcp 端口匹配；
+// 同端口候选多于一个时无法确认归属，不认领，避免错配
+func (manager *Manager) claimPoolAllocationLocked(client *Client) *Allocation {
+	if client.User.Port == 0 {
+		return nil
+	}
+	var candidate *Allocation
+	for _, a := range unityService.ListAllocations() {
+		if a.RoomId != "" || a.Status == AllocStatusFailed {
+			continue
+		}
+		tcp, _ := allocationPorts(a)
+		if tcp == 0 || tcp != client.User.Port {
+			continue
+		}
+		// 已被别的回连服务器认领：跳过
+		claimed := false
+		for _, c := range manager.gameServerClients {
+			if c != client && c.User.Allocation != nil && c.User.Allocation.Uuid == a.Uuid {
+				claimed = true
+				break
+			}
+		}
+		if claimed {
+			continue
+		}
+		if candidate != nil {
+			return nil
+		}
+		candidate = a
+	}
+	return candidate
 }
 
 // allocationPorts 从分配记录提取 tcp/udp 端口（name=tcp/udp）
