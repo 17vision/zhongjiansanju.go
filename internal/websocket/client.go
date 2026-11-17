@@ -104,6 +104,7 @@ type Client struct {
 	closeOnce   sync.Once
 	closed      uint32
 	orphanSince int64 // 孤立状态起始时间（unix 秒），孤儿清理用
+	lastActive  int64 // 最近一次收到消息/pong 的时间（unix 秒），心跳存活判定用
 }
 
 const (
@@ -141,6 +142,7 @@ func (c *Client) readPump(ctx context.Context, m *Manager) {
 	_ = c.conn.SetReadDeadline(time.Now().Add(pingPeriod + 10*time.Second))
 
 	c.conn.SetPongHandler(func(string) error {
+		atomic.StoreInt64(&c.lastActive, time.Now().Unix())
 		_ = c.conn.SetReadDeadline(time.Now().Add(pingPeriod + 10*time.Second))
 		return nil
 	})
@@ -156,6 +158,7 @@ func (c *Client) readPump(ctx context.Context, m *Manager) {
 			}
 			break
 		}
+		atomic.StoreInt64(&c.lastActive, time.Now().Unix())
 
 		var env Envelope
 		if err := gjson.Unmarshal(msg, &env); err != nil {

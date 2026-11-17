@@ -189,7 +189,7 @@ func (manager *Manager) createClient(ctx context.Context, user *User, conn *webs
 	}
 
 	// 创建并立即注册新 client（保证 manager.clients 总是指向最新 client）
-	client := &Client{User: user, conn: conn, send: make(chan []byte, 256), done: make(chan struct{}), CreatedAt: time.Now().Unix()}
+	client := &Client{User: user, conn: conn, send: make(chan []byte, 256), done: make(chan struct{}), CreatedAt: time.Now().Unix(), lastActive: time.Now().Unix()}
 	manager.clients[user.Id] = client
 	manager.mu.Unlock()
 
@@ -588,7 +588,7 @@ func (manager *Manager) stop(ctx context.Context, roomId string) bool {
 	room.Status = RoomStatusStopped
 	room.StartTime = 0
 
-	// 🔴 关键：拷贝 clients 引用，避免解锁后遍历原 map
+	// 关键：拷贝 clients 引用，避免解锁后遍历原 map
 	clients := make([]*Client, 0, len(room.Clients))
 	for _, c := range room.Clients {
 		clients = append(clients, c)
@@ -839,6 +839,7 @@ func (manager *Manager) destroyRoom(room *Room) {
 const (
 	orphanReapInterval = 15 * time.Second
 	orphanGrace        = 30 * time.Second
+	orphanIdleTimeout  = 60 * time.Second // 空闲服务器心跳超过该时长无响应才判死
 )
 
 // reapOrphanServers 定期清理孤立游戏服务器：连接已关闭、绑定房间已销毁/被顶替、或长期无房间可服务。
@@ -872,8 +873,9 @@ func (manager *Manager) reapOrphanServers() {
 			// 孤立判定：连接已关 / 绑定的房间不存在或已绑别人 / 无房间可服务
 			orphan := c.IsClosed() || (c.RoomId != "" && (bound == nil || bound.GameServerClient != c))
 			if !orphan && c.RoomId == "" {
-				// 未绑定：还有创建中的云服务器时允许等待补绑定，否则宽限后清理
-				orphan = !unityService.HasCreatingAllocation()
+				// 未绑定：心跳正常的健康连接保留待复用；
+				// 仅当没有创建中的分配且心跳长期无响应（进程已死/半开）才清理
+				orphan = !unityService.HasCreatingAllocation() && now-atomic.LoadInt64(&c.lastActive) > int64(orphanIdleTimeout/time.Second)
 			}
 
 			if !orphan {

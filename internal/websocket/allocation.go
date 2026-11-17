@@ -7,10 +7,23 @@ import (
 	"github.com/gogf/gf/v2/frame/g"
 )
 
-// ensureRoomAllocation 确保房间有云服务器：没有就异步创建一个（一个房间一个服务器）
+// ensureRoomAllocation 确保房间有云服务器：优先复用空闲服务器，没有才异步创建（一个房间一个服务器）
 func (manager *Manager) ensureRoomAllocation(ctx context.Context, room *Room) {
 	manager.mu.Lock()
 	if room.AllocationUuid != "" || room.allocCreating {
+		manager.mu.Unlock()
+		return
+	}
+	manager.mu.Unlock()
+
+	// 有已回连的空闲云服务器就直接拿来用，避免重复创建
+	if manager.tryReuseIdleServer(ctx, room) {
+		return
+	}
+
+	manager.mu.Lock()
+	// 并发下状态可能已变（别的 goroutine 绑定/创建过），复查
+	if room.AllocationUuid != "" || room.allocCreating || room.GameServerClient != nil {
 		manager.mu.Unlock()
 		return
 	}
@@ -49,18 +62,100 @@ func (manager *Manager) ensureRoomAllocation(ctx context.Context, room *Room) {
 	}
 }
 
+// tryReuseIdleServer 把已回连但没绑定房间的空闲云服务器复用给房间，成功返回 true
+func (manager *Manager) tryReuseIdleServer(ctx context.Context, room *Room) bool {
+	manager.mu.Lock()
+	if room.AllocationUuid != "" || room.GameServerClient != nil {
+		manager.mu.Unlock()
+		return false
+	}
+	var server *Client
+	for _, c := range manager.gameServerClients {
+		if c.RoomId != "" || c.IsClosed() || c.User.Extend.IsServer {
+			continue
+		}
+		// 原房间还在等它回连（分配仍挂在别的现存房间下）：不抢
+		if c.User.Allocation != nil && c.User.Allocation.Uuid != "" {
+			if r := manager.findRoomByAllocationUuidLocked(c.User.Allocation.Uuid); r != nil && r != room {
+				continue
+			}
+		} else if time.Now().Unix()-c.CreatedAt < 15 {
+			// 没带 uuid 无法确认归属：刚回连且别的房间还在创建中，可能是那台的服务器，不抢
+			awaiting := false
+			for _, r := range manager.rooms[RoomTypeMap] {
+				if r != room && r.GameServerClient == nil && r.ServerStatus == AllocStatusCreating {
+					awaiting = true
+					break
+				}
+			}
+			if awaiting {
+				continue
+			}
+		}
+		server = c
+		break
+	}
+	if server == nil {
+		manager.mu.Unlock()
+		return false
+	}
+
+	uuid := ""
+	ip := ""
+	if server.User.Allocation != nil {
+		uuid = server.User.Allocation.Uuid
+		ip = server.User.Allocation.Ip
+	}
+	if ip == "" {
+		ip = server.User.Extend.ConnectIp
+	}
+	server.RoomId = room.Id
+	server.User.Extend.IsServer = true
+	room.GameServerClient = server
+	room.AllocationUuid = uuid
+	room.ServerStatus = AllocStatusAllocated
+	room.serverNotified = false
+	room.Ip = ip
+	manager.mu.Unlock()
+
+	// 服务器自报过分配 uuid：把分配记录改挂到新房间，房间销毁时随带释放
+	if uuid != "" {
+		unityService.RebindRoom(uuid, room.Id)
+		if a := unityService.GetAllocation(uuid); a != nil && a.Ip != "" {
+			ip = a.Ip
+			manager.mu.Lock()
+			room.Ip = ip
+			manager.mu.Unlock()
+		}
+	}
+
+	g.Log("test").Async().Infof(ctx, "房间 %s 复用空闲云服务器: id=%d, ip=%s, uuid=%s", room.Id, server.User.Id, ip, uuid)
+
+	manager.updateGameServerIp(ctx, ip)
+
+	// 告诉游戏服务器它服务的新房间
+	manager.unicastAsync(ctx, server, WSMessage{
+		Type: MsgTypeJoined,
+		Data: UserEventData{RoomId: room.Id, Ip: ip, UserId: server.User.Id},
+	})
+
+	manager.notifyServerReady(ctx, room)
+	manager.checkUserCanEnterRoom(ctx)
+	return true
+}
+
 // CreateRoomWithServer 供 HTTP 接口使用：创建一个空房间并触发云服务器创建
 func (manager *Manager) CreateRoomWithServer(ctx context.Context, mapBase string) *Room {
 	manager.mu.Lock()
 	rid := nextMapRoomId(mapBase)
 	room := &Room{
-		Id:       rid,
-		MapBase:  mapBase,
-		Type:     RoomTypeMap,
-		Name:     "地图",
-		Capacity: manager.gameConfig.MapCapacity,
-		Clients:  make(map[uint64]*Client),
-		Status:   RoomStatusWating,
+		Id:        rid,
+		MapBase:   mapBase,
+		Type:      RoomTypeMap,
+		Name:      "地图",
+		Capacity:  manager.gameConfig.MapCapacity,
+		Clients:   make(map[uint64]*Client),
+		Status:    RoomStatusWating,
 		CreatedAt: time.Now().Unix(),
 	}
 	manager.rooms[RoomTypeMap] = append(manager.rooms[RoomTypeMap], room)

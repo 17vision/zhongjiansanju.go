@@ -112,11 +112,11 @@ func (s *UnityService) CreateAllocation(ctx context.Context, roomId string, envs
 
 	url := fmt.Sprintf("https://multiverse.scaling.unity.cn/v1/allocation/games/%s/allocations", unityCloudConfig.AppId)
 	data := map[string]any{
-		"uuid":          id,
-		"profileId":     unityCloudConfig.ProfileId,
-		"regionId":      unityCloudConfig.RegionId,
-		"allocationTTL": unityCloudConfig.AllocationTTL,
-		"envs":          envs,
+		"uuid":      id,
+		"profileId": unityCloudConfig.ProfileId,
+		"regionId":  unityCloudConfig.RegionId,
+		// "allocationTTL": unityCloudConfig.AllocationTTL,
+		"envs": envs,
 	}
 	headers := map[string]string{
 		"Content-Type":  "application/json",
@@ -190,6 +190,20 @@ func (s *UnityService) GetRoomAllocation(roomId string) *Allocation {
 		}
 	}
 	return nil
+}
+
+// RebindRoom 修改分配记录的归属房间（空闲服务器被新房间复用时），房间销毁时随带释放
+func (s *UnityService) RebindRoom(id, roomId string) bool {
+	s.mu.Lock()
+	a, ok := s.allocations[id]
+	if ok {
+		a.RoomId = roomId
+	}
+	s.mu.Unlock()
+	if ok {
+		s.persist()
+	}
+	return ok
 }
 
 // HasCreatingAllocation 是否还有创建中的云服务器（孤儿清理据此允许未绑定服务器等待补绑定）
