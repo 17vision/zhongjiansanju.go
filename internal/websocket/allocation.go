@@ -318,6 +318,25 @@ func (manager *Manager) bindGameServer(ctx context.Context, client *Client) {
 	manager.notifyServerReady(ctx, room)
 }
 
+// roomServerPortsLocked 取房间云服务器的两个端口（调用方持 manager.mu）：
+// 优先平台分配记录里 name=tcp/udp 的端口，没有才用服务器自报端口兜底
+func (manager *Manager) roomServerPortsLocked(room *Room) (port, udpPort int) {
+	if alloc := unityService.GetRoomAllocation(room.Id); alloc != nil {
+		for _, p := range alloc.GameServerPorts {
+			switch p.Name {
+			case "tcp":
+				port = p.Port
+			case "udp":
+				udpPort = p.Port
+			}
+		}
+	}
+	if port == 0 && room.GameServerClient != nil {
+		port = room.GameServerClient.User.Port
+	}
+	return port, udpPort
+}
+
 // notifyServerReady 房间 ip 和游戏服务器都就绪后，广播 serverReady（只发一次）
 func (manager *Manager) notifyServerReady(ctx context.Context, room *Room) {
 	manager.mu.Lock()
@@ -326,15 +345,15 @@ func (manager *Manager) notifyServerReady(ctx context.Context, room *Room) {
 		return
 	}
 	room.serverNotified = true
-	port := room.GameServerClient.User.Port
+	port, udpPort := manager.roomServerPortsLocked(room)
 	ip := room.Ip
 	manager.mu.Unlock()
 
-	g.Log("test").Async().Infof(ctx, "房间 %s 服务器就绪, ip=%s, port=%d", room.Id, ip, port)
+	g.Log("test").Async().Infof(ctx, "房间 %s 服务器就绪, ip=%s, tcpPort=%d, udpPort=%d", room.Id, ip, port, udpPort)
 
 	manager.broadcastAsync(ctx, room, WSMessage{
 		Type: MsgTypeServerReady,
-		Data: UserEventData{RoomId: room.Id, Ip: ip, Port: port},
+		Data: UserEventData{RoomId: room.Id, Ip: ip, TcpPort: port, UdpPort: udpPort},
 	}, nil)
 }
 
@@ -347,17 +366,14 @@ func (manager *Manager) pushServerStatus(ctx context.Context, room *Room, client
 	manager.mu.RLock()
 	status := room.ServerStatus
 	ip := room.Ip
-	var port int
-	if room.GameServerClient != nil {
-		port = room.GameServerClient.User.Port
-	}
+	port, udpPort := manager.roomServerPortsLocked(room)
 	manager.mu.RUnlock()
 
 	switch {
 	case status == AllocStatusAllocated && ip != "" && port != 0:
 		manager.unicastAsync(ctx, client, WSMessage{
 			Type: MsgTypeServerReady,
-			Data: UserEventData{RoomId: room.Id, Ip: ip, Port: port},
+			Data: UserEventData{RoomId: room.Id, Ip: ip, TcpPort: port, UdpPort: udpPort},
 		})
 	case status == AllocStatusFailed:
 		manager.unicastAsync(ctx, client, WSMessage{

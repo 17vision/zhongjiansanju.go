@@ -282,14 +282,11 @@ func websocketHandler(r *ghttp.Request) {
 
 		// 发给自己，加入了房间（ip 为空表示云服务器还在创建中）
 		manager.mu.RLock()
-		var port int
-		if room.GameServerClient != nil {
-			port = room.GameServerClient.User.Port
-		}
+		port, udpPort := manager.roomServerPortsLocked(room)
 		manager.mu.RUnlock()
 		manager.unicastAsync(ctx, client, WSMessage{
 			Type: MsgTypeJoined,
-			Data: UserEventData{RoomId: room.Id, Ip: room.Ip, Port: port},
+			Data: UserEventData{RoomId: room.Id, Ip: room.Ip, TcpPort: port, UdpPort: udpPort},
 		})
 
 		// 把房间里的人推送给自己

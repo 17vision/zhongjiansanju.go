@@ -40,7 +40,8 @@ type UserEventData struct {
 	RoomId  string `json:"roomId"`
 	Message string `json:"message"`
 	Ip      string `json:"ip"`
-	Port    int    `json:"port"`
+	TcpPort int    `json:"tcpPort"` // 云服务器 tcp 端口
+	UdpPort int    `json:"udpPort"` // 云服务器 udp 端口（与 tcpPort 一起下发）
 	UserId  uint64 `json:"userId"`
 }
 
@@ -112,14 +113,11 @@ func CreateOrJoinMapHandler(ctx context.Context, manager *Manager, client *Clien
 
 	// 发给自己，加入了房间（ip 为空表示云服务器还在创建中）
 	manager.mu.RLock()
-	var port int
-	if room.GameServerClient != nil {
-		port = room.GameServerClient.User.Port
-	}
+	port, udpPort := manager.roomServerPortsLocked(room)
 	manager.mu.RUnlock()
 	manager.unicastAsync(ctx, client, WSMessage{
 		Type: MsgTypeJoined,
-		Data: UserEventData{RoomId: room.Id, Ip: room.Ip, Port: port},
+		Data: UserEventData{RoomId: room.Id, Ip: room.Ip, TcpPort: port, UdpPort: udpPort},
 	})
 
 	// 把房间里的人推送给自己
