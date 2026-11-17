@@ -87,6 +87,10 @@ func (manager *Manager) tryReuseIdleServer(ctx context.Context, room *Room) bool
 		}
 		// 原房间还在等它回连（分配仍挂在别的现存房间下）：不抢
 		if c.User.Allocation != nil && c.User.Allocation.Uuid != "" {
+			// 分配记录已不存在（已释放/待清理）：不复用，避免房间挂上无法释放的孤儿分配
+			if unityService.GetAllocation(c.User.Allocation.Uuid) == nil {
+				continue
+			}
 			if r := manager.findRoomByAllocationUuidLocked(c.User.Allocation.Uuid); r != nil && r != room {
 				continue
 			}
@@ -155,27 +159,6 @@ func (manager *Manager) tryReuseIdleServer(ctx context.Context, room *Room) bool
 	return true
 }
 
-// CreateRoomWithServer 供 HTTP 接口使用：创建一个空房间并触发云服务器创建
-func (manager *Manager) CreateRoomWithServer(ctx context.Context, mapBase string) *Room {
-	manager.mu.Lock()
-	rid := nextMapRoomId(mapBase)
-	room := &Room{
-		Id:        rid,
-		MapBase:   mapBase,
-		Type:      RoomTypeMap,
-		Name:      "地图",
-		Capacity:  manager.gameConfig.MapCapacity,
-		Clients:   make(map[uint64]*Client),
-		Status:    RoomStatusWating,
-		CreatedAt: time.Now().Unix(),
-	}
-	manager.rooms[RoomTypeMap] = append(manager.rooms[RoomTypeMap], room)
-	manager.mu.Unlock()
-
-	manager.ensureRoomAllocation(ctx, room)
-	return room
-}
-
 // onAllocationReady 云服务器创建成功（轮询/回调触发）：更新房间 ip，尝试绑定已回连的游戏服务器
 func (manager *Manager) onAllocationReady(alloc *Allocation) {
 	ctx := context.TODO()
@@ -184,6 +167,11 @@ func (manager *Manager) onAllocationReady(alloc *Allocation) {
 	room := manager.findRoomByAllocationUuidLocked(alloc.Uuid)
 	if room == nil {
 		manager.mu.Unlock()
+		// 空闲池服务器（创建时未指定房间）：保留待复用，用户进房时由 tryReuseIdleServer 绑定
+		if alloc.RoomId == "" {
+			g.Log("test").Async().Infof(ctx, "空闲池云服务器就绪, uuid=%s, ip=%s", alloc.Uuid, alloc.Ip)
+			return
+		}
 		g.Log("test").Async().Infof(ctx, "云服务器就绪但找不到归属房间, uuid=%s, roomId=%s", alloc.Uuid, alloc.RoomId)
 		// 房间已不存在：释放该分配，避免平台孤儿计费
 		go func(id string) {
@@ -229,6 +217,14 @@ func (manager *Manager) onAllocationFailed(alloc *Allocation) {
 	room := manager.findRoomByAllocationUuidLocked(alloc.Uuid)
 	if room == nil {
 		manager.mu.Unlock()
+		// 空闲池服务器创建失败：清理分配记录，避免残留（远端已失败，删除幂等）
+		if alloc.RoomId == "" {
+			go func(id string) {
+				delCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+				defer cancel()
+				unityService.DeleteAllocation(delCtx, id)
+			}(alloc.Uuid)
+		}
 		return
 	}
 	room.ServerStatus = AllocStatusFailed
@@ -266,6 +262,14 @@ func (manager *Manager) bindGameServer(ctx context.Context, client *Client) {
 	var room *Room
 	if allocUuid != "" {
 		room = manager.findRoomByAllocationUuidLocked(allocUuid)
+		// 空闲池服务器（分配无归属房间）：保持空闲待复用，不走兜底避免误绑到别的房间
+		if room == nil {
+			if a := unityService.GetAllocation(allocUuid); a != nil && a.RoomId == "" {
+				manager.mu.Unlock()
+				g.Log("test").Async().Infof(ctx, "空闲池游戏服务器 %d 回连待命, uuid=%s, ip=%s", client.User.Id, allocUuid, client.User.Extend.ConnectIp)
+				return
+			}
+		}
 	}
 	// 兜底 1：按连接 IP 匹配（游戏服务器 WS 来源 IP 就是云服务器 IP）
 	if room == nil && client.User.Extend != nil && client.User.Extend.ConnectIp != "" {

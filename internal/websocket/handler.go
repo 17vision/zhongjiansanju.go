@@ -109,36 +109,46 @@ func allocationCallback(r *ghttp.Request) {
 }
 
 // createAllocationHandler HTTP 创建云服务器：
-// 传 roomId 则给已有房间补建服务器；不传则新建房间并触发创建。
+// 传 roomId 则给已有房间补建服务器；不传则只创建云服务器（空闲池），不创建房间，
+// 用户进房时自动建房并复用空闲服务器。
 // 立即返回分配信息，ip 为空表示创建中，可轮询 GET /ws/allocation 或等回调。
 func createAllocationHandler(r *ghttp.Request) {
 	ctx := r.GetCtx()
 	roomId := r.Get("roomId").String()
-	mapBase := r.Get("mapBase").String()
-	if mapBase == "" {
-		mapBase = defaultMapBase
-	}
 
-	var room *Room
-	if roomId != "" {
-		manager.mu.RLock()
-		for _, item := range manager.rooms[RoomTypeMap] {
-			if item.Id == roomId {
-				room = item
-				break
-			}
-		}
-		manager.mu.RUnlock()
-
-		if room == nil {
-			r.Response.WriteHeader(http.StatusForbidden)
-			r.Response.WriteJson(map[string]any{"message": "房间不存在"})
+	if roomId == "" {
+		alloc, err := unityService.CreateAllocation(ctx, "", map[string]string{
+			"recordHost": recordHost,
+		})
+		if err != nil {
+			r.Response.WriteHeader(http.StatusInternalServerError)
+			r.Response.WriteJson(map[string]any{"message": "云服务器创建失败:" + err.Error()})
 			return
 		}
-		manager.ensureRoomAllocation(ctx, room)
-	} else {
-		room = manager.CreateRoomWithServer(ctx, mapBase)
+		r.Response.WriteHeader(http.StatusOK)
+		r.Response.WriteJson(map[string]any{
+			"roomId":     "",
+			"allocation": alloc, // ip 为空表示创建中
+		})
+		return
 	}
+
+	manager.mu.RLock()
+	var room *Room
+	for _, item := range manager.rooms[RoomTypeMap] {
+		if item.Id == roomId {
+			room = item
+			break
+		}
+	}
+	manager.mu.RUnlock()
+
+	if room == nil {
+		r.Response.WriteHeader(http.StatusForbidden)
+		r.Response.WriteJson(map[string]any{"message": "房间不存在"})
+		return
+	}
+	manager.ensureRoomAllocation(ctx, room)
 
 	alloc := unityService.GetRoomAllocation(room.Id)
 
@@ -496,10 +506,19 @@ func getRoomsHandler(r *ghttp.Request) {
 		})
 	}
 
+	// 空闲池分配（无归属房间）：供前端展示创建中/待回连的服务器
+	poolAllocations := make([]*Allocation, 0)
+	for _, a := range unityService.ListAllocations() {
+		if a.RoomId == "" {
+			poolAllocations = append(poolAllocations, a)
+		}
+	}
+
 	r.Response.WriteHeader(http.StatusOK)
 	r.Response.WriteJson(map[string]any{
-		"rooms":   outRooms,
-		"servers": outGameServerClient,
+		"rooms":           outRooms,
+		"servers":         outGameServerClient,
+		"poolAllocations": poolAllocations,
 	})
 }
 

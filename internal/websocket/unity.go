@@ -100,6 +100,7 @@ func (s *UnityService) SetHooks(onReady, onFailed func(*Allocation)) {
 
 // CreateAllocation 异步创建云服务器：立即返回分配信息（ip 为空表示创建中），
 // 后台轮询直到 allocated/failed，结果通过钩子通知。每次创建生成新的 uuid。
+// roomId 为空表示空闲池服务器：不绑定房间，回连后待命，用户进房时复用。
 func (s *UnityService) CreateAllocation(ctx context.Context, roomId string, envs map[string]string) (*Allocation, error) {
 	id := uuid.New().String()
 
@@ -179,8 +180,11 @@ func (s *UnityService) GetAllocation(id string) *Allocation {
 	return nil
 }
 
-// GetRoomAllocation 按房间查询分配信息
+// GetRoomAllocation 按房间查询分配信息（roomId 为空时不匹配空闲池分配）
 func (s *UnityService) GetRoomAllocation(roomId string) *Allocation {
+	if roomId == "" {
+		return nil
+	}
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	for _, a := range s.allocations {
