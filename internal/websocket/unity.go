@@ -264,6 +264,17 @@ func (s *UnityService) DeleteAllocation(ctx context.Context, id string) {
 	}
 }
 
+// removeLocal 仅移除本地分配记录（平台侧已不存在时同步清理用，不再调远端删除）
+func (s *UnityService) removeLocal(id string) {
+	s.mu.Lock()
+	_, ok := s.allocations[id]
+	delete(s.allocations, id)
+	s.mu.Unlock()
+	if ok {
+		s.persist()
+	}
+}
+
 // pollAllocation 后台轮询创建结果，使用独立 context，不受请求断开影响
 func (s *UnityService) pollAllocation(id string) {
 	ctx, cancel := context.WithTimeout(context.Background(), allocPollTimeout)

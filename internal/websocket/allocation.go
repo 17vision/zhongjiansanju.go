@@ -2,6 +2,7 @@ package websocket
 
 import (
 	"context"
+	"strings"
 	"time"
 
 	"github.com/gogf/gf/v2/frame/g"
@@ -447,6 +448,22 @@ func (manager *Manager) pushServerStatus(ctx context.Context, room *Room, client
 // releaseRoomServer 释放房间绑定的云服务器（HTTP 删除接口用）：
 // 后端解绑/清理 + 调 Unity 平台释放 + 断开对应游戏服务器连接
 func (manager *Manager) releaseRoomServer(ctx context.Context, uuid string) {
+	room := manager.unbindAllocationServers(uuid)
+
+	delCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	unityService.DeleteAllocation(delCtx, uuid)
+
+	if room != nil {
+		manager.broadcastAsync(ctx, room, WSMessage{
+			Type: MsgTypeError,
+			Data: UserEventData{RoomId: room.Id, Message: "云服务器已释放"},
+		}, nil)
+	}
+}
+
+// unbindAllocationServers 解绑分配对应的房间并断开游戏服务器连接（含空闲池认领的），返回受影响的房间
+func (manager *Manager) unbindAllocationServers(uuid string) *Room {
 	manager.mu.Lock()
 	room := manager.findRoomByAllocationUuidLocked(uuid)
 	var victims []*Client
@@ -471,21 +488,67 @@ func (manager *Manager) releaseRoomServer(ctx context.Context, uuid string) {
 	}
 	manager.mu.Unlock()
 
-	delCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	unityService.DeleteAllocation(delCtx, uuid)
-
 	// 断开连接触发读泵退出 → removeClient 完成 map 清理与房间解绑
 	for _, c := range victims {
 		c.Close()
 	}
+	return room
+}
 
-	if room != nil {
-		manager.broadcastAsync(ctx, room, WSMessage{
-			Type: MsgTypeError,
-			Data: UserEventData{RoomId: room.Id, Message: "云服务器已释放"},
-		}, nil)
+// 对账间隔：每 30s 核对一次本地分配是否已被平台回收
+const allocReconcileInterval = 30 * time.Second
+
+// reconcileAllocations 定期与 Unity 平台对账：平台侧已回收/删除的分配（TTL 到期、平台手动释放等）
+// 本地同步清理，避免后台显示幽灵服务器、房间误判服务器就绪
+func (manager *Manager) reconcileAllocations() {
+	ctx := context.Background()
+	ticker := time.NewTicker(allocReconcileInterval)
+	defer ticker.Stop()
+
+	for range ticker.C {
+		for _, a := range unityService.ListAllocations() {
+			// creating 由创建轮询负责、failed 由失败流程负责，只对账已就绪的分配
+			if a.Status != AllocStatusAllocated {
+				continue
+			}
+			remote, err := unityService.fetchAllocation(ctx, a.Uuid)
+			if err != nil {
+				// 平台已无该分配（404/not found）：清理；其余错误视为瞬时，等下一轮
+				if !isAllocationNotFound(err) {
+					continue
+				}
+				remote = nil
+			}
+			if remote.IsReady() {
+				continue
+			}
+			g.Log("test").Async().Infof(ctx, "分配已被平台回收，本地同步清理, uuid=%s, roomId=%s", a.Uuid, a.RoomId)
+			manager.cleanupGoneAllocation(ctx, a)
+		}
 	}
+}
+
+// isAllocationNotFound 判断平台查询错误是否为“分配不存在”
+func isAllocationNotFound(err error) bool {
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "404") || strings.Contains(msg, "not found")
+}
+
+// cleanupGoneAllocation 清理平台侧已不存在的分配：移除本地记录、解绑房间并断开连接（不再调远端删除）
+func (manager *Manager) cleanupGoneAllocation(ctx context.Context, a *Allocation) {
+	unityService.removeLocal(a.Uuid)
+	room := manager.unbindAllocationServers(a.Uuid)
+	if room == nil {
+		return
+	}
+	// 置为 failed：用户进房时自动重试创建云服务器
+	manager.mu.Lock()
+	room.ServerStatus = AllocStatusFailed
+	manager.mu.Unlock()
+	manager.broadcastAsync(ctx, room, WSMessage{
+		Type: MsgTypeError,
+		Data: UserEventData{RoomId: room.Id, Message: "云服务器已被平台回收"},
+	}, nil)
 }
 
 // findRoomByAllocationUuidLocked 按分配 uuid 找房间（调用方必须持有 manager.mu）

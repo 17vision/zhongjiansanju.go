@@ -23,6 +23,8 @@ func init() {
 	unityService = NewUnityService()
 	// 云服务器创建结果（轮询/回调）通知房间
 	unityService.SetHooks(manager.onAllocationReady, manager.onAllocationFailed)
+	// 定期与平台对账，清理平台侧已回收的分配
+	go manager.reconcileAllocations()
 }
 
 type AllocationCallbackReq struct {
