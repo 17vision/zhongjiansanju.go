@@ -43,6 +43,7 @@ type Room struct {
 	ServerStatus     string             `json:"serverStatus"`   // 云服务器状态：creating/allocated/failed
 	serverNotified   bool               // serverReady 是否已广播过
 	allocCreating    bool               // 是否正在创建云服务器（防并发重复创建）
+	destroyed        bool               // 房间已销毁（创建中的分配据此释放，防孤儿计费）
 }
 
 type Gender int

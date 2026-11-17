@@ -344,6 +344,17 @@ func (manager *Manager) getMapRoom(mapBase string) *Room {
 func (manager *Manager) createOrJoinMap(ctx context.Context, client *Client, mapBase string) *Room {
 	manager.mu.Lock()
 
+	// 幂等：连接自动进房与客户端 createOrJoinMap 消息可能并发到达，
+	// 已在地图房间就直接返回该房间，不建第二个房间
+	if client.RoomId != "" && client.RoomType == RoomTypeMap {
+		for _, r := range manager.rooms[RoomTypeMap] {
+			if r.Id == client.RoomId {
+				manager.mu.Unlock()
+				return r
+			}
+		}
+	}
+
 	client.RoomType = RoomTypeMap
 
 	mapCapacity := manager.gameConfig.MapCapacity
@@ -392,6 +403,11 @@ func (manager *Manager) leftLobbyOrMap(ctx context.Context, client *Client) {
 			room = r
 			break
 		}
+	}
+	if room != nil {
+		// 复位归属，避免 createOrJoinMap 的幂等守卫误返回已退出的旧房间
+		client.RoomId = ""
+		client.RoomType = ""
 	}
 
 	manager.mu.Unlock()
@@ -817,6 +833,7 @@ func (manager *Manager) destroyRoom(room *Room) {
 	manager.rooms[room.Type] = filtered
 	allocUuid := room.AllocationUuid
 	room.AllocationUuid = ""
+	room.destroyed = true
 	// 解绑游戏服务器：房间没了，连接若还活着则复位为待服务，交给孤儿清理或重新绑定
 	if room.GameServerClient != nil {
 		room.GameServerClient.User.Extend.IsServer = false

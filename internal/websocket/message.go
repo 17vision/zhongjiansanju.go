@@ -85,6 +85,23 @@ func CreateOrJoinMapHandler(ctx context.Context, manager *Manager, client *Clien
 		req.Map = defaultMapBase
 	}
 
+	// 已在目标地图的房间里（连接时自动进房已处理过）：不重复退出/重建，
+	// 否则旧房间被销毁、又新建房间+新云服务器，消息和分配都会乱
+	manager.mu.RLock()
+	var current *Room
+	if client.RoomType == RoomTypeMap {
+		for _, r := range manager.rooms[RoomTypeMap] {
+			if r.Id == client.RoomId {
+				current = r
+				break
+			}
+		}
+	}
+	manager.mu.RUnlock()
+	if current != nil && current.MapBase == req.Map && current.Status != RoomStatusStopped {
+		return nil
+	}
+
 	// 先退出以前的房子
 	manager.leftLobbyOrMap(ctx, client)
 

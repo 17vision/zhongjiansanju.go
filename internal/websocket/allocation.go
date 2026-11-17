@@ -48,6 +48,17 @@ func (manager *Manager) ensureRoomAllocation(ctx context.Context, room *Room) {
 	}
 
 	manager.mu.Lock()
+	// 创建期间房间被销毁（用户秒退等）：释放刚创建的分配，避免孤儿计费
+	if room.destroyed {
+		manager.mu.Unlock()
+		g.Log("test").Async().Infof(ctx, "房间 %s 已销毁，释放创建中的云服务器 uuid=%s", roomId, alloc.Uuid)
+		go func(id string) {
+			delCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			unityService.DeleteAllocation(delCtx, id)
+		}(alloc.Uuid)
+		return
+	}
 	room.allocCreating = false
 	room.AllocationUuid = alloc.Uuid
 	room.ServerStatus = alloc.Status
@@ -174,6 +185,12 @@ func (manager *Manager) onAllocationReady(alloc *Allocation) {
 	if room == nil {
 		manager.mu.Unlock()
 		g.Log("test").Async().Infof(ctx, "云服务器就绪但找不到归属房间, uuid=%s, roomId=%s", alloc.Uuid, alloc.RoomId)
+		// 房间已不存在：释放该分配，避免平台孤儿计费
+		go func(id string) {
+			delCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			unityService.DeleteAllocation(delCtx, id)
+		}(alloc.Uuid)
 		return
 	}
 	room.Ip = alloc.Ip
