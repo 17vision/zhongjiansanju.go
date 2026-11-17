@@ -444,10 +444,12 @@ func (manager *Manager) pushServerStatus(ctx context.Context, room *Room, client
 	}
 }
 
-// releaseRoomServer 释放房间绑定的云服务器（HTTP 删除接口用）
+// releaseRoomServer 释放房间绑定的云服务器（HTTP 删除接口用）：
+// 后端解绑/清理 + 调 Unity 平台释放 + 断开对应游戏服务器连接
 func (manager *Manager) releaseRoomServer(ctx context.Context, uuid string) {
 	manager.mu.Lock()
 	room := manager.findRoomByAllocationUuidLocked(uuid)
+	var victims []*Client
 	if room != nil {
 		room.AllocationUuid = ""
 		room.ServerStatus = ""
@@ -457,7 +459,14 @@ func (manager *Manager) releaseRoomServer(ctx context.Context, uuid string) {
 		if room.GameServerClient != nil {
 			room.GameServerClient.User.Extend.IsServer = false
 			room.GameServerClient.RoomId = ""
+			victims = append(victims, room.GameServerClient)
 			room.GameServerClient = nil
+		}
+	}
+	// 空闲池里认领了该分配的服务器连接一并断开（平台释放后进程即销毁，留着连接只会是僵尸）
+	for _, c := range manager.gameServerClients {
+		if c.User.Allocation != nil && c.User.Allocation.Uuid == uuid {
+			victims = append(victims, c)
 		}
 	}
 	manager.mu.Unlock()
@@ -465,6 +474,11 @@ func (manager *Manager) releaseRoomServer(ctx context.Context, uuid string) {
 	delCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	unityService.DeleteAllocation(delCtx, uuid)
+
+	// 断开连接触发读泵退出 → removeClient 完成 map 清理与房间解绑
+	for _, c := range victims {
+		c.Close()
+	}
 
 	if room != nil {
 		manager.broadcastAsync(ctx, room, WSMessage{

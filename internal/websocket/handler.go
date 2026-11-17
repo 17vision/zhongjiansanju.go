@@ -433,6 +433,7 @@ func getRoomsHandler(r *ghttp.Request) {
 
 	type GameServerClient struct {
 		Id        uint64 `json:"id"`
+		Uuid      string `json:"uuid"` // 分配 uuid（前端销毁/释放用，未认领时为空）
 		Port      int    `json:"port"` // 服务器自报端口（仅排查用，对外连接以 tcpPort/udpPort 为准）
 		TcpPort   int    `json:"tcpPort"`
 		UdpPort   int    `json:"udpPort"`
@@ -495,6 +496,7 @@ func getRoomsHandler(r *ghttp.Request) {
 		}
 		outGameServerClient = append(outGameServerClient, GameServerClient{
 			Id:        item.User.Id,
+			Uuid:      serverAllocUuid(item),
 			Port:      item.User.Port,
 			TcpPort:   tcpPort,
 			UdpPort:   udpPort,
@@ -520,6 +522,14 @@ func getRoomsHandler(r *ghttp.Request) {
 		"servers":         outGameServerClient,
 		"poolAllocations": poolAllocations,
 	})
+}
+
+// serverAllocUuid 取游戏服务器认领/自报的分配 uuid（未认领时为空）
+func serverAllocUuid(c *Client) string {
+	if c.User.Allocation != nil {
+		return c.User.Allocation.Uuid
+	}
+	return ""
 }
 
 func clientIPv4(r *ghttp.Request) string {
