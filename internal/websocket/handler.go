@@ -372,6 +372,8 @@ type OutRoom struct {
 	StartDuration int64       `json:"startDuration"`
 	ServerReady   bool        `json:"serverReady"` // 云服务器就绪（有 ip 且游戏服务器已回连）才能开始游戏
 	Allocation    *Allocation `json:"allocation"`  // 云服务器分配信息（ip 为空表示创建中）
+	TcpPort       int         `json:"tcpPort"`     // 云服务器 tcp 端口（平台分配优先）
+	UdpPort       int         `json:"udpPort"`     // 云服务器 udp 端口
 }
 
 func getRoomsHandler(r *ghttp.Request) {
@@ -402,6 +404,10 @@ func getRoomsHandler(r *ghttp.Request) {
 				startDuration = time.Now().Unix() - item1.StartTime
 			}
 
+			manager.mu.RLock()
+			tcpPort, udpPort := manager.roomServerPortsLocked(item1)
+			manager.mu.RUnlock()
+
 			outRooms = append(outRooms, OutRoom{
 				Room:          item1,
 				UserLength:    allNum,
@@ -409,13 +415,17 @@ func getRoomsHandler(r *ghttp.Request) {
 				StartDuration: startDuration,
 				ServerReady:   item1.Ip != "" && item1.GameServerClient != nil,
 				Allocation:    unityService.GetRoomAllocation(item1.Id),
+				TcpPort:       tcpPort,
+				UdpPort:       udpPort,
 			})
 		}
 	}
 
 	type GameServerClient struct {
 		Id        uint64 `json:"id"`
-		Port      int    `json:"port"`
+		Port      int    `json:"port"` // 服务器自报端口（仅排查用，对外连接以 tcpPort/udpPort 为准）
+		TcpPort   int    `json:"tcpPort"`
+		UdpPort   int    `json:"udpPort"`
 		Ip        string `json:"ip"`
 		ConnectIp string `json:"connectIp"` // WS 连接来源 IP（可能是 NAT 出口 IP，仅排查用）
 		IsServer  bool   `json:"isServer"`
@@ -455,9 +465,29 @@ func getRoomsHandler(r *ghttp.Request) {
 		if ip == "" {
 			ip = connectIp
 		}
+		// 端口与 rooms 同口径：自报 uuid 对应的分配记录 → 绑定房间 → 自报端口兜底
+		var tcpPort, udpPort int
+		if item.User.Allocation != nil && item.User.Allocation.Uuid != "" {
+			tcpPort, udpPort = allocationPorts(unityService.GetAllocation(item.User.Allocation.Uuid))
+		}
+		if tcpPort == 0 && item.RoomId != "" {
+			manager.mu.RLock()
+			for _, r := range manager.rooms[RoomTypeMap] {
+				if r.Id == item.RoomId {
+					tcpPort, udpPort = manager.roomServerPortsLocked(r)
+					break
+				}
+			}
+			manager.mu.RUnlock()
+		}
+		if tcpPort == 0 {
+			tcpPort = item.User.Port
+		}
 		outGameServerClient = append(outGameServerClient, GameServerClient{
 			Id:        item.User.Id,
 			Port:      item.User.Port,
+			TcpPort:   tcpPort,
+			UdpPort:   udpPort,
 			Ip:        ip,
 			ConnectIp: connectIp,
 			IsServer:  item.User.Extend.IsServer,

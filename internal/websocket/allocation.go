@@ -318,19 +318,26 @@ func (manager *Manager) bindGameServer(ctx context.Context, client *Client) {
 	manager.notifyServerReady(ctx, room)
 }
 
+// allocationPorts 从分配记录提取 tcp/udp 端口（name=tcp/udp）
+func allocationPorts(alloc *Allocation) (port, udpPort int) {
+	if alloc == nil {
+		return 0, 0
+	}
+	for _, p := range alloc.GameServerPorts {
+		switch p.Name {
+		case "tcp":
+			port = p.Port
+		case "udp":
+			udpPort = p.Port
+		}
+	}
+	return port, udpPort
+}
+
 // roomServerPortsLocked 取房间云服务器的两个端口（调用方持 manager.mu）：
 // 优先平台分配记录里 name=tcp/udp 的端口，没有才用服务器自报端口兜底
 func (manager *Manager) roomServerPortsLocked(room *Room) (port, udpPort int) {
-	if alloc := unityService.GetRoomAllocation(room.Id); alloc != nil {
-		for _, p := range alloc.GameServerPorts {
-			switch p.Name {
-			case "tcp":
-				port = p.Port
-			case "udp":
-				udpPort = p.Port
-			}
-		}
-	}
+	port, udpPort = allocationPorts(unityService.GetRoomAllocation(room.Id))
 	if port == 0 && room.GameServerClient != nil {
 		port = room.GameServerClient.User.Port
 	}
