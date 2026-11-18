@@ -219,6 +219,22 @@ func websocketHandler(r *ghttp.Request) {
 		return
 	}
 
+	// 2026-11-18 暂时不服务端生了
+	// 服务端生成内存不重复的随机 6 位数 id 覆盖
+	// reported := user.Id
+	// manager.mu.Lock()
+	// for {
+	// 	id := uint64(100000 + rand.Intn(900000))
+	// 	_, inClients := manager.clients[id]
+	// 	_, inServers := manager.gameServerClients[id]
+	// 	if !inClients && !inServers {
+	// 		user.Id = id
+	// 		break
+	// 	}
+	// }
+	// manager.mu.Unlock()
+	// g.Log("test").Async().Infof(ctx, "客户端上报 id %d，分配内存唯一 id %d", reported, user.Id)
+
 	// 普通用户：先取设备使用信息（昵称/模型），决定是否直接进特殊房间
 	if user.Type == TypeUser {
 		// 干掉设置昵称 模型的功能
@@ -292,13 +308,13 @@ func websocketHandler(r *ghttp.Request) {
 			room = manager.createOrJoinLobby(client)
 		}
 
-		// 发给自己，加入了房间（ip 为空表示云服务器还在创建中）
+		// 发给自己，加入了房间（ip 为空表示云服务器还在创建中；userId 为服务端分配的唯一 id）
 		manager.mu.RLock()
 		port, udpPort := manager.roomServerPortsLocked(room)
 		manager.mu.RUnlock()
 		manager.unicastAsync(ctx, client, WSMessage{
 			Type: MsgTypeJoined,
-			Data: UserEventData{RoomId: room.Id, Ip: room.Ip, TcpPort: port, UdpPort: udpPort},
+			Data: UserEventData{RoomId: room.Id, Ip: room.Ip, TcpPort: port, UdpPort: udpPort, UserId: user.Id},
 		})
 
 		// 把房间里的人推送给自己
